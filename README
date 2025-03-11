@@ -49,13 +49,3 @@ will need to install a cross-compiler gcc suite capable of producing
 x86 ELF binaries (see https://pdos.csail.mit.edu/6.828/).
 Then run "make TOOLPREFIX=i386-jos-elf-". Now install the QEMU PC
 simulator and run "make qemu".
-
-
-
-Test 1: CPU-heavy: Avg 46 ticks
-Test 2: Switch overhead: Avg 206 ticks
-Test 3: I/O-bound: Avg 1003 ticks
-Test 4: Mixed load: Avg 107 ticks (I/O concurrent, ~52 ticks + CPU ~55 ticks)
-Test 5: Process creation: Avg 61 ticks
-Test 6: Short tasks: Avg 78 ticks
-Test 7: Starvation check: Avg 25 ticks
