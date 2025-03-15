@@ -65,6 +65,8 @@ struct proc
   struct inode *cwd;          // Current directory
   char name[16];              // Process name (debugging)
   int priority;               // Priority level (0-10, 0 is highest)
+  int just_woke;              // Flag for just woken from sleep
+  // uint ticks;                 // Add for wakeup time
 };
 
 // Process table structure

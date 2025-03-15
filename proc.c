@@ -332,7 +332,7 @@ void scheduler(void)
   for (;;)
   {
     sti();
-    acquire(&ptable.lock); // Still works
+    acquire(&ptable.lock);
 
     struct proc *highest_p = 0;
     int min_priority = 11;
@@ -348,6 +348,10 @@ void scheduler(void)
 
     if (highest_p)
     {
+      /*if (strncmp(highest_p->name, "timingtests", 11) == 0)
+      {
+        cprintf("Running pid %d, prio %d\n", highest_p->pid, highest_p->priority);
+      }*/
       c->proc = highest_p;
       switchuvm(highest_p);
       highest_p->state = RUNNING;
@@ -462,10 +466,13 @@ static void
 wakeup1(void *chan)
 {
   struct proc *p;
-
   for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
     if (p->state == SLEEPING && p->chan == chan)
+    {
       p->state = RUNNABLE;
+    }
+  }
 }
 
 // Wake up all processes sleeping on chan.

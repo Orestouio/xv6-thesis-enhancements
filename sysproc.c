@@ -88,9 +88,15 @@ int sys_setpriority(void)
 {
   int pid, priority;
   if (argint(0, &pid) < 0 || argint(1, &priority) < 0)
+  {
+    cprintf("sys_setpriority: argint failed\n");
     return -1;
+  }
   if (priority < 0 || priority > 10)
+  {
+    cprintf("sys_setpriority: priority %d out of range\n", priority);
     return -1; // Enforce 0-10 range
+  }
 
   struct proc *p;
   acquire(&ptable.lock);
@@ -99,10 +105,12 @@ int sys_setpriority(void)
     if (p->pid == pid && p->state != UNUSED)
     {
       p->priority = priority;
+      // cprintf("Set pid %d to priority %d\n", pid, priority);
       release(&ptable.lock);
       return 0;
     }
   }
+  cprintf("sys_setpriority: pid %d not found\n", pid);
   release(&ptable.lock);
   return -1; // Process not found
 }
