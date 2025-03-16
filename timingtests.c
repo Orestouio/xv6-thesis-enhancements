@@ -7,7 +7,7 @@ int timing_cpu_heavy(void);
 int timing_switch_overhead(void);
 int timing_io_bound(void);
 int timing_mixed_load(void);
-int timing_process_creation(void); // Added
+int timing_process_creation(void);
 int timing_short_tasks(void);
 int timing_starvation_check(void);
 
@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
     run_test(timing_switch_overhead, "Test 2: Switch overhead", 5);
     run_test(timing_io_bound, "Test 3: I/O-bound", 5);
     run_test(timing_mixed_load, "Test 4: Mixed load", 5);
-    run_test(timing_process_creation, "Test 5: Process creation", 5); // Uncommented
+    run_test(timing_process_creation, "Test 5: Process creation", 5);
     run_test(timing_short_tasks, "Test 6: Short tasks", 5);
     run_test(timing_starvation_check, "Test 7: Starvation check", 5);
     printf(1, "Tests complete.\n");
