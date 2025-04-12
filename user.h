@@ -1,10 +1,7 @@
-// user.h
-#ifndef USER_H
-#define USER_H
-
 struct stat;
 struct rtcdate;
 
+// system calls
 int fork(void);
 int exit(void) __attribute__((noreturn));
 int wait(void);
@@ -26,13 +23,22 @@ int getpid(void);
 char *sbrk(int);
 int sleep(int);
 int uptime(void);
-int settickets(int pid, int tickets);
+int settickets(int);
+
+// lottery
+struct pinfo
+{
+    int pid;
+    int tickets;
+    int ticks_scheduled;
+};
+int getpinfo(struct pinfo *);
 
 // ulib.c
 int stat(const char *, struct stat *);
 char *strcpy(char *, const char *);
 void *memmove(void *, const void *, int);
-char *strchr(const char *, char);
+char *strchr(const char *, char c);
 int strcmp(const char *, const char *);
 void printf(int, const char *, ...);
 char *gets(char *, int max);
@@ -41,5 +47,3 @@ void *memset(void *, int, uint);
 void *malloc(uint);
 void free(void *);
 int atoi(const char *);
-
-#endif

@@ -1,20 +1,21 @@
-// sysproc.c
 #include "types.h"
-#include "x86.h"
 #include "defs.h"
-#include "date.h"
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
-#include "proc.h"     // For struct proc
-#include "spinlock.h" // For struct spinlock in ptable
+#include "x86.h"
+#include "proc.h"
 
-// Declare ptable - matches proc.c
-extern struct
+// Define struct pinfo to match user.h
+struct pinfo
 {
-  struct spinlock lock;
-  struct proc proc[NPROC];
-} ptable;
+  int pid;
+  int tickets;
+  int ticks_scheduled;
+};
+
+extern struct proc ptable[NPROC];
+extern struct spinlock ptable_lock;
 
 int sys_fork(void)
 {
@@ -24,7 +25,7 @@ int sys_fork(void)
 int sys_exit(void)
 {
   exit();
-  return 0; // not reached
+  return 0;
 }
 
 int sys_wait(void)
@@ -35,7 +36,6 @@ int sys_wait(void)
 int sys_kill(void)
 {
   int pid;
-
   if (argint(0, &pid) < 0)
     return -1;
   return kill(pid);
@@ -91,29 +91,43 @@ int sys_uptime(void)
   return xticks;
 }
 
-// sysproc.c
 int sys_settickets(void)
 {
-  int pid, tickets;
-  struct proc *p;
-
-  if (argint(0, &pid) < 0 || argint(1, &tickets) < 0)
+  int n;
+  if (argint(0, &n) < 0 || n < 1)
     return -1;
-  if (tickets < 1 || tickets > 100)
-    return -1;
+  myproc()->tickets = n;
+  return 0;
+}
 
-  acquire(&ptable.lock);
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+int sys_getpinfo(void)
+{
+  struct pinfo *info;
+  if (argptr(0, (void *)&info, sizeof(*info) * NPROC) < 0)
   {
-    if (p->pid == pid)
+    cprintf("sys_getpinfo: argptr failed\n");
+    return -1;
+  }
+  acquire(&ptable_lock);
+  for (int i = 0; i < NPROC; i++)
+  {
+    struct proc *p = &ptable[i];
+    // Include RUNNABLE, RUNNING, SLEEPING, ZOMBIE
+    if (p->state != UNUSED && p->state != EMBRYO)
     {
-      p->tickets = tickets;
-      cprintf("pid %d tickets set to %d\n", pid, p->tickets);
-      release(&ptable.lock);
-      return 0;
+      info[i].pid = p->pid;
+      info[i].tickets = p->tickets;
+      info[i].ticks_scheduled = p->ticks_scheduled;
+      cprintf("sys_getpinfo: slot %d, pid %d, state %d, tickets %d, scheduled %d\n",
+              i, p->pid, p->state, p->tickets, p->ticks_scheduled);
+    }
+    else
+    {
+      info[i].pid = 0;
+      info[i].tickets = 0;
+      info[i].ticks_scheduled = 0;
     }
   }
-  cprintf("pid %d not found\n", pid);
-  release(&ptable.lock);
-  return -1;
+  release(&ptable_lock);
+  return 0;
 }

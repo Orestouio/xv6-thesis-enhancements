@@ -1,4 +1,3 @@
-// syscall.c
 #include "types.h"
 #include "defs.h"
 #include "param.h"
@@ -8,7 +7,7 @@
 #include "x86.h"
 #include "syscall.h"
 
-// User code makes a system call with int $T_SYSCALL.
+// User code makes a system call with INT T_SYSCALL.
 // System call number in %eax.
 // Arguments on the stack, from the user call to the C
 // library system call function. The saved user %esp points
@@ -30,15 +29,18 @@ int fetchint(uint addr, int *ip)
 // Returns length of string, not including nul.
 int fetchstr(uint addr, char **pp)
 {
-  char *s;
+  char *s, *ep;
   struct proc *curproc = myproc();
 
   if (addr >= curproc->sz)
     return -1;
   *pp = (char *)addr;
-  for (s = *pp; s < (char *)curproc->sz; s++)
+  ep = (char *)curproc->sz;
+  for (s = *pp; s < ep; s++)
+  {
     if (*s == 0)
       return s - *pp;
+  }
   return -1;
 }
 
@@ -97,7 +99,8 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
-extern int sys_settickets(void); // Added
+extern int sys_settickets(void);
+extern int sys_getpinfo(void);
 
 static int (*syscalls[])(void) = {
     [SYS_fork] sys_fork,
@@ -122,6 +125,7 @@ static int (*syscalls[])(void) = {
     [SYS_mkdir] sys_mkdir,
     [SYS_close] sys_close,
     [SYS_settickets] sys_settickets,
+    [SYS_getpinfo] sys_getpinfo,
 };
 
 void syscall(void)
