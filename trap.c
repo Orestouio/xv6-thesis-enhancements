@@ -54,6 +54,11 @@ void trap(struct trapframe *tf)
       wakeup(&ticks);
       release(&tickslock);
     }
+    // Increment cpu_time for the running process
+    if (myproc() && myproc()->state == RUNNING)
+    {
+      myproc()->cpu_time++;
+    }
     lapiceoi();
     break;
 

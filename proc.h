@@ -66,7 +66,13 @@ struct proc
   char name[16];              // Process name (debugging)
   int priority;               // Priority level (0-10, 0 is highest)
   int just_woke;              // Flag for just woken from sleep
-  // uint ticks;                 // Add for wakeup time
+  uint creation_time;         // Time when process was created
+  uint completion_time;       // Time when process completed
+  uint waiting_time;          // Total time spent in RUNNABLE state
+  uint last_runnable_tick;    // Last time process became RUNNABLE
+  uint first_run_time;        // Time when process first ran
+  int has_run;                // Flag: 0 if hasn’t run yet, 1 if has
+  uint cpu_time;              // Total CPU time used
 };
 
 // Process table structure
