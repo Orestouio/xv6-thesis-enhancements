@@ -101,3 +101,8 @@ int sys_setpriority(void)
   release(&ptable.lock);
   return -1;
 }
+
+int sys_getcontextswitches(void)
+{
+  return context_switches;
+}

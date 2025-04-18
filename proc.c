@@ -10,6 +10,8 @@
 struct ptable ptable;
 static struct proc *initproc;
 
+int context_switches = 0; // Global counter
+
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
@@ -255,10 +257,10 @@ int wait(void)
       havekids = 1;
       if (p->state == ZOMBIE)
       {
-        int turnaround = p->completion_time - p->creation_time;
-        int response = p->first_run_time - p->creation_time;
+        /* int turnaround = p->completion_time - p->creation_time;
+         int response = p->first_run_time - p->creation_time;
         cprintf("PID %d: Turnaround %d, Response %d, Waiting %d, CPU %d\n",
-                p->pid, turnaround, response, p->waiting_time, p->cpu_time);
+                p->pid, turnaround, response, p->waiting_time, p->cpu_time);*/
 
         pid = p->pid;
         kfree(p->kstack);
@@ -349,6 +351,7 @@ void scheduler(void)
         c->proc = selected;
         switchuvm(selected);
         selected->state = RUNNING;
+        context_switches++; // Increment counter on each context switch
         swtch(&(c->scheduler), selected->context);
         switchkvm();
         c->proc = 0;

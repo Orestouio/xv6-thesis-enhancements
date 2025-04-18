@@ -27,7 +27,7 @@ void run_test(int (*test)(), char *name, int runs)
 int main(int argc, char *argv[])
 {
     printf(1, "Starting scheduling tests with priority...\n");
-    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 5);
+    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 10);
     run_test(timing_switch_overhead, "Test 2: Switch overhead", 5);
     run_test(timing_io_bound, "Test 3: I/O-bound", 5);
     run_test(timing_mixed_load, "Test 4: Mixed load", 5);
@@ -42,6 +42,7 @@ int timing_cpu_heavy(void)
 {
     int pid, runs = 10;
     printf(1, "Test 1: CPU-heavy tasks (%d procs)\n", runs);
+    int start_switches = getcontextswitches();
     int start = uptime();
     for (int i = 0; i < runs; i++)
     {
@@ -63,7 +64,9 @@ int timing_cpu_heavy(void)
         wait();
     }
     int end = uptime();
-    return end - start; // ~40-45 ticks
+    int end_switches = getcontextswitches();
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+    return end - start;
 }
 
 int timing_switch_overhead(void)

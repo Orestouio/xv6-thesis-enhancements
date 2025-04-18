@@ -5,6 +5,8 @@
 #include "param.h"    // For NPROC, NCPU, NOFILE, etc.
 #include "spinlock.h" // Needed for struct spinlock in ptable
 
+extern int context_switches; // Declare global variable
+
 // Forward declarations for structs defined elsewhere
 struct taskstate; // From mmu.h
 struct segdesc;   // From mmu.h
