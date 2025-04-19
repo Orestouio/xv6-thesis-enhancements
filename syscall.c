@@ -1,3 +1,4 @@
+// syscall.c
 #include "types.h"
 #include "defs.h"
 #include "param.h"
@@ -12,12 +13,10 @@
 // Arguments on the stack, from the user call to the C
 // library system call function. The saved user %esp points
 // to a saved program counter, and then the first argument.
-
 // Fetch the int at addr from the current process.
 int fetchint(uint addr, int *ip)
 {
   struct proc *curproc = myproc();
-
   if (addr >= curproc->sz || addr + 4 > curproc->sz)
     return -1;
   *ip = *(int *)(addr);
@@ -26,12 +25,11 @@ int fetchint(uint addr, int *ip)
 
 // Fetch the nul-terminated string at addr from the current process.
 // Doesn't actually copy the string - just sets *pp to point at it.
-// Returns length of string, not including nul.
+// Returns the length of the string (not including nul), or -1 if error.
 int fetchstr(uint addr, char **pp)
 {
   char *s, *ep;
   struct proc *curproc = myproc();
-
   if (addr >= curproc->sz)
     return -1;
   *pp = (char *)addr;
@@ -51,13 +49,12 @@ int argint(int n, int *ip)
 }
 
 // Fetch the nth word-sized system call argument as a pointer
-// to a block of memory of size bytes.  Check that the pointer
+// to a block of memory of size n bytes.  Check that the pointer
 // lies within the process address space.
 int argptr(int n, char **pp, int size)
 {
   int i;
   struct proc *curproc = myproc();
-
   if (argint(n, &i) < 0)
     return -1;
   if (size < 0 || (uint)i >= curproc->sz || (uint)i + size > curproc->sz)
@@ -68,8 +65,7 @@ int argptr(int n, char **pp, int size)
 
 // Fetch the nth word-sized system call argument as a string pointer.
 // Check that the pointer is valid and the string is nul-terminated.
-// (There is no shared writable memory, so the string can't change
-// between this check and being used by the kernel.)
+// Returns string length or -1 if error.
 int argstr(int n, char **pp)
 {
   int addr;
@@ -101,6 +97,7 @@ extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_setpriority(void);
 extern int sys_getcontextswitches(void);
+extern int sys_print_sched_log(void); // Add this line
 
 static int (*syscalls[])(void) = {
     [SYS_fork] sys_fork,
@@ -126,13 +123,13 @@ static int (*syscalls[])(void) = {
     [SYS_close] sys_close,
     [SYS_setpriority] sys_setpriority,
     [SYS_getcontextswitches] sys_getcontextswitches,
+    [SYS_print_sched_log] sys_print_sched_log, // Add this line
 };
 
 void syscall(void)
 {
   int num;
   struct proc *curproc = myproc();
-
   num = curproc->tf->eax;
   if (num > 0 && num < NELEM(syscalls) && syscalls[num])
   {

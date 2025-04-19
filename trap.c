@@ -8,20 +8,19 @@
 #include "traps.h"
 #include "spinlock.h"
 
-// Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
-extern uint vectors[]; // in vectors.S: array of 256 entry pointers
+extern uint vectors[];
 struct spinlock tickslock;
 uint ticks;
+
+// Removed fixed TIME_SLICE definition; we'll compute it dynamically
 
 void tvinit(void)
 {
   int i;
-
   for (i = 0; i < 256; i++)
     SETGATE(idt[i], 0, SEG_KCODE << 3, vectors[i], 0);
   SETGATE(idt[T_SYSCALL], 1, SEG_KCODE << 3, vectors[T_SYSCALL], DPL_USER);
-
   initlock(&tickslock, "time");
 }
 
@@ -50,14 +49,37 @@ void trap(struct trapframe *tf)
     {
       acquire(&tickslock);
       ticks++;
-      // cprintf("Timer tick: %d\n", ticks); // Debug
       wakeup(&ticks);
       release(&tickslock);
     }
-    // Increment cpu_time for the running process
     if (myproc() && myproc()->state == RUNNING)
     {
       myproc()->cpu_time++;
+      acquire(&ptable.lock);
+      int has_runnable = 0;
+      int highest_priority = 11; // Higher than any valid priority
+      struct proc *p;
+      for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      {
+        if (p != myproc() && p->state == RUNNABLE)
+        {
+          has_runnable = 1;
+          if (p->priority < highest_priority)
+            highest_priority = p->priority; // Lower numerical value = higher priority
+        }
+      }
+      // Dynamic time slice based on priority
+      int time_slice = (myproc()->priority <= 2) ? 5 : 2; // Priority 0-2: 5 ticks, 3-10: 2 ticks
+      // Force preemption if time slice is up OR a higher-priority process is runnable
+      if (has_runnable && (myproc()->cpu_time % time_slice == 0 || highest_priority < myproc()->priority))
+      {
+        release(&ptable.lock);
+        yield();
+      }
+      else
+      {
+        release(&ptable.lock);
+      }
     }
     lapiceoi();
     break;
@@ -68,7 +90,6 @@ void trap(struct trapframe *tf)
     break;
 
   case T_IRQ0 + IRQ_IDE + 1:
-    // Bochs generates spurious IDE1 interrupts.
     break;
 
   case T_IRQ0 + IRQ_KBD:
@@ -91,12 +112,10 @@ void trap(struct trapframe *tf)
   default:
     if (myproc() == 0 || (tf->cs & 3) == 0)
     {
-      // In kernel, it must be our mistake.
       cprintf("unexpected trap %d from cpu %d eip %x (cr2=0x%x)\n",
               tf->trapno, cpuid(), tf->eip, rcr2());
       panic("trap");
     }
-    // In user space, assume process misbehaved.
     cprintf("pid %d %s: trap %d err %d on cpu %d "
             "eip 0x%x addr 0x%x--kill proc\n",
             myproc()->pid, myproc()->name, tf->trapno,
@@ -104,15 +123,6 @@ void trap(struct trapframe *tf)
     myproc()->killed = 1;
   }
 
-  // Force process exit if killed in user space
-  if (myproc() && myproc()->killed && (tf->cs & 3) == DPL_USER)
-    exit();
-
-  // Force process to yield on clock tick
-  if (myproc() && myproc()->state == RUNNING && tf->trapno == T_IRQ0 + IRQ_TIMER)
-    yield();
-
-  // Check if killed after yielding
   if (myproc() && myproc()->killed && (tf->cs & 3) == DPL_USER)
     exit();
 }

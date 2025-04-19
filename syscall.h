@@ -22,3 +22,4 @@
 #define SYS_close 21
 #define SYS_getcontextswitches 22 // Adjust based on existing system calls
 #define SYS_setpriority 23
+#define SYS_print_sched_log 24

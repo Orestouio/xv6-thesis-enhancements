@@ -75,6 +75,9 @@ struct proc
   uint first_run_time;        // Time when process first ran
   int has_run;                // Flag: 0 if hasn’t run yet, 1 if has
   uint cpu_time;              // Total CPU time used
+  int wait_ticks;             // Track waiting time for aging
+  struct proc *next;          // Next process in priority queue
+  int time_slice;             // Field for tracking time slice
 };
 
 // Process table structure
@@ -92,5 +95,6 @@ void scheduler(void);
 struct proc *myproc(void);
 void forkret(void);
 void trapret(void);
+void print_sched_log(void);
 
 #endif

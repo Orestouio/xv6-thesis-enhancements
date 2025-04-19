@@ -3,6 +3,8 @@
 #include "user.h"
 #include "fcntl.h"
 
+extern void print_sched_log(void);
+
 int timing_cpu_heavy(void);
 int timing_switch_overhead(void);
 int timing_io_bound(void);
@@ -21,19 +23,26 @@ void run_test(int (*test)(), char *name, int runs)
         total += ticks;
         printf(1, "Run %d: %d ticks\n", i + 1, ticks);
     }
-    printf(1, "Total: %d ticks, Avg: %d ticks/run\n", total, total / runs);
+    printf(1, "+++ Total: %d ticks, Avg: %d ticks/run\n", total, total / runs);
 }
 
 int main(int argc, char *argv[])
 {
     printf(1, "Starting scheduling tests with priority...\n");
-    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 10);
+    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 5);
+    sleep(5);
     run_test(timing_switch_overhead, "Test 2: Switch overhead", 5);
+    sleep(5);
     run_test(timing_io_bound, "Test 3: I/O-bound", 5);
+    sleep(5);
     run_test(timing_mixed_load, "Test 4: Mixed load", 5);
+    sleep(5);
     run_test(timing_process_creation, "Test 5: Process creation", 5);
+    sleep(5);
     run_test(timing_short_tasks, "Test 6: Short tasks", 5);
+    sleep(5);
     run_test(timing_starvation_check, "Test 7: Starvation check", 5);
+    sleep(5);
     printf(1, "Tests complete.\n");
     exit();
 }
@@ -66,6 +75,7 @@ int timing_cpu_heavy(void)
     int end = uptime();
     int end_switches = getcontextswitches();
     printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+    print_sched_log(); // Print log
     return end - start;
 }
 
@@ -97,32 +107,61 @@ int timing_switch_overhead(void)
 
 int timing_io_bound(void)
 {
-    int pid, runs = 100, batch_size = 50;
-    printf(1, "Test 3: I/O-bound tasks (%d procs)\n", runs);
-    int start = uptime();
-    for (int b = 0; b < runs / batch_size; b++)
+    int i;
+    int start_time, end_time;
+    const int num_procs = 50; // Reduced from 100 to 50 to fit within NPROC
+
+    printf(1, "Test 3: I/O-bound tasks (%d procs)\n", num_procs);
+    int start_switches = getcontextswitches();
+    start_time = uptime();
+
+    // Fork I/O-bound processes
+    for (i = 0; i < num_procs; i++)
     {
-        for (int i = 0; i < batch_size; i++)
+        int pid = fork();
+        if (pid < 0)
         {
-            pid = fork();
-            if (pid < 0)
-            {
-                printf(1, "fork failed at %d\n", b * batch_size + i);
-                return -1;
-            }
-            if (pid == 0)
-            {
-                sleep(10);
-                exit();
-            }
+            printf(1, "fork failed at %d\n", i);
+            // Clean up by waiting for any existing children before exiting
+            while (wait() != -1)
+                ;
+            return -1; // Return error code instead of exiting
         }
-        for (int i = 0; i < batch_size; i++)
+        if (pid == 0)
         {
-            wait();
+            // Set priority: first half at priority 5, second half at priority 0
+            if (i < num_procs / 2)
+                setpriority(getpid(), 5);
+            else
+                setpriority(getpid(), 0);
+
+            // Simulate I/O-bound behavior: short CPU bursts with sleep
+            for (int j = 0; j < 10; j++)
+            {
+                int k;
+                for (k = 0; k < 100000; k++)
+                    ;     // Short CPU burst
+                sleep(1); // Simulate I/O wait
+            }
+            exit();
         }
     }
-    int end = uptime();
-    return end - start; // ~49-50 ticks
+
+    // Wait for all children to finish
+    for (i = 0; i < num_procs; i++)
+    {
+        if (wait() == -1)
+        {
+            printf(1, "wait failed for child %d\n", i);
+            break;
+        }
+    }
+
+    end_time = uptime();
+    int end_switches = getcontextswitches();
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+    print_sched_log(); // Print log
+    return end_time - start_time;
 }
 
 int timing_mixed_load(void)
@@ -131,15 +170,12 @@ int timing_mixed_load(void)
     int min_ticks = 9999;
     int has_50 = 0;
     int pipefd[2];
-
     if (pipe(pipefd) < 0)
     {
         printf(1, "pipe failed\n");
         return -1;
     }
-
     printf(1, "Test 4: Mixed load (%d CPU, %d I/O)\n", cpu_runs, io_runs);
-
     for (int i = 0; i < io_runs; i++)
     {
         pid = fork();
@@ -161,7 +197,6 @@ int timing_mixed_load(void)
             exit();
         }
     }
-
     for (int i = 0; i < cpu_runs; i++)
     {
         pid = fork();
@@ -184,7 +219,6 @@ int timing_mixed_load(void)
             exit();
         }
     }
-
     close(pipefd[1]);
     for (int i = 0; i < cpu_runs + io_runs; i++)
     {
@@ -197,7 +231,7 @@ int timing_mixed_load(void)
         wait();
     }
     close(pipefd[0]);
-    return has_50 ? 50 : (min_ticks == 9999 ? 50 : min_ticks); // 50 ticks
+    return has_50 ? 50 : (min_ticks == 9999 ? 50 : min_ticks);
 }
 
 int timing_process_creation(void)

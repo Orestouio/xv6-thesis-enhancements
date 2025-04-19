@@ -1,3 +1,4 @@
+// sysproc.c
 #include "types.h"
 #include "x86.h"
 #include "defs.h"
@@ -26,7 +27,6 @@ int sys_wait(void)
 int sys_kill(void)
 {
   int pid;
-
   if (argint(0, &pid) < 0)
     return -1;
   return kill(pid);
@@ -41,7 +41,6 @@ int sys_sbrk(void)
 {
   int addr;
   int n;
-
   if (argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
@@ -54,7 +53,6 @@ int sys_sleep(void)
 {
   int n;
   uint ticks0;
-
   if (argint(0, &n) < 0)
     return -1;
   acquire(&tickslock);
@@ -72,12 +70,9 @@ int sys_sleep(void)
   return 0;
 }
 
-// return how many clock tick interrupts have occurred
-// since start.
 int sys_uptime(void)
 {
   uint xticks;
-
   acquire(&tickslock);
   xticks = ticks;
   release(&tickslock);
@@ -88,6 +83,8 @@ int sys_setpriority(void)
 {
   int pid, priority;
   if (argint(0, &pid) < 0 || argint(1, &priority) < 0)
+    return -1;
+  if (priority < 0 || priority > 10)
     return -1;
   struct proc *p;
   acquire(&ptable.lock);
@@ -105,4 +102,10 @@ int sys_setpriority(void)
 int sys_getcontextswitches(void)
 {
   return context_switches;
+}
+
+int sys_print_sched_log(void) // Add this function
+{
+  print_sched_log();
+  return 0;
 }
