@@ -33,6 +33,8 @@ struct pinfo
     int ticks_scheduled;
 };
 int getpinfo(struct pinfo *);
+int yield(void);
+int settickets_pid(int pid, int tickets);
 
 // ulib.c
 int stat(const char *, struct stat *);

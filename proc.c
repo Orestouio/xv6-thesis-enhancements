@@ -7,21 +7,36 @@
 #include "proc.h"
 #include "spinlock.h"
 
-// Simple XOR-shift random number generator
+// Simple Linear Congruential Generator (LCG) with better properties
 static unsigned int randstate = 1;
 
 void srand(unsigned int seed)
 {
   randstate = seed;
+  if (randstate == 0) // Xorshift requires a non-zero state
+    randstate = 1;
 }
 
-unsigned int
-rand(void)
+unsigned int rand(void)
 {
-  randstate ^= randstate << 13;
-  randstate ^= randstate >> 17;
-  randstate ^= randstate << 5;
-  return randstate;
+  unsigned int x = randstate;
+  x ^= (x << 13);
+  x ^= (x >> 17);
+  x ^= (x << 5);
+  randstate = x;
+  return x & 0x7fffffff;
+}
+
+unsigned int rand_range(unsigned int max)
+{
+  // Avoid modulo bias by rejecting values that would skew the distribution
+  unsigned int threshold = (0x7fffffff / max) * max;
+  unsigned int r;
+  do
+  {
+    r = rand();
+  } while (r >= threshold);
+  return r % max;
 }
 
 struct proc ptable[NPROC];
@@ -100,6 +115,8 @@ found:
   p->state = EMBRYO;
   p->tickets = 1;         // Default to 1 ticket
   p->ticks_scheduled = 0; // Initialize counter
+  p->expected_schedules = 0;
+  p->ticket_boost = 0; // Initialize
   p->pid = nextpid++;
 
   release(&ptable_lock);
@@ -154,6 +171,11 @@ void userinit(void)
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
+
+  // Seed the random number generator with a combination of ticks, CPU ID, and PID
+  acquire(&tickslock);
+  srand(ticks + lapicid() + p->pid);
+  release(&tickslock);
 
   acquire(&ptable_lock);
   p->state = RUNNABLE;
@@ -328,9 +350,14 @@ void scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  struct proc *runnable_procs[NPROC];
+  int runnable_count;
   int total_tickets;
   int winner;
   int current_tickets;
+  int total_scheds = 0;
+  static int winner_histogram[100] = {0};
+  static int sched_count = 0;
 
   c->proc = 0;
 
@@ -339,11 +366,18 @@ void scheduler(void)
     sti();
 
     total_tickets = 0;
+    runnable_count = 0;
+    total_scheds = 0;
     acquire(&ptable_lock);
+
     for (p = ptable; p < &ptable[NPROC]; p++)
     {
       if (p->state == RUNNABLE)
-        total_tickets += p->tickets;
+      {
+        runnable_procs[runnable_count++] = p;
+        total_tickets += p->tickets + p->ticket_boost;
+        total_scheds += p->ticks_scheduled;
+      }
     }
 
     if (total_tickets == 0)
@@ -352,15 +386,42 @@ void scheduler(void)
       continue;
     }
 
-    winner = rand() % total_tickets;
+    if (total_scheds > 0 && (sched_count % 10 == 0))
+    {
+      for (int i = 0; i < runnable_count; i++)
+      {
+        p = runnable_procs[i];
+        int expected = (p->tickets * total_scheds) / (total_tickets - p->ticket_boost);
+        p->expected_schedules = expected;
+        if (p->ticks_scheduled < expected)
+        {
+          p->ticket_boost = (expected - p->ticks_scheduled) / 4;
+          if (p->ticket_boost > p->tickets / 2)
+          {
+            p->ticket_boost = p->tickets / 2;
+          }
+        }
+        else
+        {
+          p->ticket_boost = 0;
+        }
+      }
+    }
+
+    srand(ticks + lapicid() + randstate);
+    winner = rand_range(total_tickets);
+
+    if (total_tickets <= 100)
+    {
+      winner_histogram[winner]++;
+    }
 
     current_tickets = 0;
-    for (p = ptable; p < &ptable[NPROC]; p++)
+    for (int i = 0; i < runnable_count; i++)
     {
-      if (p->state != RUNNABLE)
-        continue;
-      current_tickets += p->tickets;
-      if (current_tickets > winner)
+      p = runnable_procs[i];
+      int effective_tickets = p->tickets + p->ticket_boost;
+      if (winner < effective_tickets + current_tickets)
       {
         c->proc = p;
         switchuvm(p);
@@ -371,7 +432,19 @@ void scheduler(void)
         c->proc = 0;
         break;
       }
+      current_tickets += effective_tickets;
     }
+
+    // Log histogram earlier, when total_tickets is still 60 (all test processes are running)
+    if (++sched_count % 50 == 0 && total_tickets >= 60) // Log when all processes are active
+    {
+      // cprintf("Winner histogram (range 0 to %d):\n", total_tickets - 1);
+      for (int i = 0; i < total_tickets; i++)
+      {
+        // cprintf("Ticket %d: %d times\n", i, winner_histogram[i]);
+      }
+    }
+
     release(&ptable_lock);
   }
 }

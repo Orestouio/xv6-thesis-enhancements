@@ -123,6 +123,7 @@ void userinit(void);
 int wait(void);
 void wakeup(void *);
 void yield(void);
+int sys_settickets_pid(void);
 
 // swtch.S
 void swtch(struct context **, struct context *);

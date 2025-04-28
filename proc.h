@@ -50,6 +50,8 @@ struct proc
   char name[16];
   int tickets;
   int ticks_scheduled;
+  int expected_schedules; // Expected schedules based on ticket proportion (new field)
+  int ticket_boost;       // Temporary boost to tickets for fairness (new field)
 };
 
 void srand(unsigned int seed);
