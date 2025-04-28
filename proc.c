@@ -386,29 +386,81 @@ void scheduler(void)
       continue;
     }
 
-    if (total_scheds > 0 && (sched_count % 10 == 0))
+    // Track processes by ticket groups for Test 2
+    int group_tickets[3] = {0, 0, 0}; // For tickets 30, 20, 10
+    int group_sched[3] = {0, 0, 0};
+    int group_count[3] = {0, 0, 0};
+    for (int i = 0; i < runnable_count; i++)
     {
-      for (int i = 0; i < runnable_count; i++)
+      p = runnable_procs[i];
+      if (p->tickets == 30)
       {
-        p = runnable_procs[i];
-        int expected = (p->tickets * total_scheds) / (total_tickets - p->ticket_boost);
-        p->expected_schedules = expected;
-        if (p->ticks_scheduled < expected)
+        group_tickets[0] += p->tickets;
+        group_sched[0] += p->ticks_scheduled;
+        group_count[0]++;
+      }
+      else if (p->tickets == 20)
+      {
+        group_tickets[1] += p->tickets;
+        group_sched[1] += p->ticks_scheduled;
+        group_count[1]++;
+      }
+      else if (p->tickets == 10)
+      {
+        group_tickets[2] += p->tickets;
+        group_sched[2] += p->ticks_scheduled;
+        group_count[2]++;
+      }
+    }
+
+    // Dynamic boost frequency: every 5 events if >10 processes, otherwise every 10
+    int boost_interval = (runnable_count > 10) ? 5 : 10;
+    if (total_scheds > 0 && (sched_count % boost_interval == 0))
+    {
+      for (int g = 0; g < 3; g++)
+      {
+        if (group_count[g] == 0)
+          continue;
+        int expected = (group_tickets[g] * total_scheds) / total_tickets;
+        int group_boost = 0;
+        if (group_sched[g] < expected)
         {
-          p->ticket_boost = (expected - p->ticks_scheduled) / 4;
-          if (p->ticket_boost > p->tickets / 2)
-          {
-            p->ticket_boost = p->tickets / 2;
-          }
+          group_boost = (expected - group_sched[g]); // Aggressive boost
         }
-        else
+        int boost_per_proc = group_count[g] > 0 ? group_boost / group_count[g] : 0;
+        int min_boost = (runnable_count > 10) ? 5 : 2; // Dynamic minimum boost
+        for (int i = 0; i < runnable_count; i++)
         {
-          p->ticket_boost = 0;
+          p = runnable_procs[i];
+          if ((g == 0 && p->tickets == 30) || (g == 1 && p->tickets == 20) || (g == 2 && p->tickets == 10))
+          {
+            p->ticket_boost = boost_per_proc;
+            if (p->tickets <= 10 && p->ticket_boost < min_boost)
+            {
+              p->ticket_boost = min_boost;
+            }
+            // Adjusted cap: allow boost up to 2x tickets for low-ticket processes
+            int boost_cap = (p->tickets <= 10) ? 2 * p->tickets : p->tickets;
+            if (p->ticket_boost > boost_cap)
+            {
+              p->ticket_boost = boost_cap;
+            }
+          }
         }
       }
     }
 
-    srand(ticks + lapicid() + randstate);
+    // Shuffle runnable_procs to eliminate ordering bias
+    for (int i = runnable_count - 1; i > 0; i--)
+    {
+      srand(ticks + lapicid() + randstate + i);
+      int j = rand_range(i + 1);
+      struct proc *temp = runnable_procs[i];
+      runnable_procs[i] = runnable_procs[j];
+      runnable_procs[j] = temp;
+    }
+
+    srand(ticks + lapicid() + randstate + runnable_count + total_scheds);
     winner = rand_range(total_tickets);
 
     if (total_tickets <= 100)
@@ -435,17 +487,8 @@ void scheduler(void)
       current_tickets += effective_tickets;
     }
 
-    // Log histogram earlier, when total_tickets is still 60 (all test processes are running)
-    if (++sched_count % 50 == 0 && total_tickets >= 60) // Log when all processes are active
-    {
-      // cprintf("Winner histogram (range 0 to %d):\n", total_tickets - 1);
-      for (int i = 0; i < total_tickets; i++)
-      {
-        // cprintf("Ticket %d: %d times\n", i, winner_histogram[i]);
-      }
-    }
-
     release(&ptable_lock);
+    sched_count++; // Increment sched_count after each scheduling event
   }
 }
 

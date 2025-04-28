@@ -136,152 +136,112 @@ void run_workload_test(int tickets1, int tickets2, int tickets3, int iterations1
     *sched3_out = sched3;
 }
 
-// Test 2: Switch Overhead (fork-and-exit)
 void run_switch_test(int tickets1, int tickets2, int tickets3, int *sched1_out, int *sched2_out, int *sched3_out)
 {
-    int pid1, pid2, pid3;
-    int i;
-    struct pinfo info[64];
+    int pids[50]; // Array to store PIDs of all 50 processes
     int sched1 = 0, sched2 = 0, sched3 = 0;
+    struct pinfo info[64];
     int start_time, end_time;
+    int i;
 
     printf(1, "%s: Tickets=%d,%d,%d\n", "Test 2: Switch Overhead", tickets1, tickets2, tickets3);
 
     start_time = uptime();
 
-    // Process A: 17 forks
-    for (i = 0; i < 17; i++)
-    {
-        pid1 = fork();
-        if (pid1 == 0)
-        {
-            settickets(tickets1);
-            // Perform a larger workload to ensure scheduling
-            for (volatile int j = 0; j < 10000000; j++)
-                ; // Increased to 10M iterations
-            // Sleep to keep the process RUNNABLE for a while
-            sleep(10); // Sleep for 10 ticks
-            exit();
-        }
-
-        // Collect scheduling data while the child is still alive
-        int found = 0;
-        for (int k = 0; k < 50; k++) // Retry up to 50 times
-        {
-            if (getpinfo(info) < 0)
-            {
-                printf(1, "getpinfo failed\n");
-                break;
-            }
-            for (int j = 0; j < 64; j++)
-            {
-                if (info[j].pid == pid1)
-                {
-                    sched1 += info[j].ticks_scheduled;
-                    found = 1;
-                    if (info[j].ticks_scheduled > 0) // Only print if non-zero
-                        /*printf(1, "Captured pid=%d, ticks_scheduled=%d (total sched1=%d)\n",
-                               pid1, info[j].ticks_scheduled, sched1);*/
-                        break;
-                }
-            }
-            yield(); // Yield to give the child a chance to run
-        }
-        if (!found)
-        {
-            printf(1, "Failed to capture scheduling data for pid=%d\n", pid1);
-        }
-
-        wait();
-        yield();
-    }
-
-    // Process B: 17 forks
-    for (i = 0; i < 17; i++)
-    {
-        pid2 = fork();
-        if (pid2 == 0)
-        {
-            settickets(tickets2);
-            for (volatile int j = 0; j < 10000000; j++)
-                ;
-            sleep(10);
-            exit();
-        }
-
-        int found = 0;
-        for (int k = 0; k < 50; k++)
-        {
-            if (getpinfo(info) < 0)
-            {
-                printf(1, "getpinfo failed\n");
-                break;
-            }
-            for (int j = 0; j < 64; j++)
-            {
-                if (info[j].pid == pid2)
-                {
-                    sched2 += info[j].ticks_scheduled;
-                    found = 1;
-                    if (info[j].ticks_scheduled > 0)
-                        /*printf(1, "Captured pid=%d, ticks_scheduled=%d (total sched2=%d)\n",
-                               pid2, info[j].ticks_scheduled, sched2);*/
-                        break;
-                }
-            }
-            yield();
-        }
-        if (!found)
-        {
-            printf(1, "Failed to capture scheduling data for pid=%d\n", pid2);
-        }
-
-        wait();
-        yield();
-    }
-
-    // Process C: 16 forks
+    // First 16 sets: C, A, B
     for (i = 0; i < 16; i++)
     {
-        pid3 = fork();
-        if (pid3 == 0)
+        // Fork C
+        pids[34 + i] = fork();
+        if (pids[34 + i] == 0)
         {
             settickets(tickets3);
-            for (volatile int j = 0; j < 10000000; j++)
-                ;
-            sleep(10);
+            for (volatile int j = 0; j < 100000000; j++)
+            {
+                if (j % 100000 == 0)
+                    yield();
+            }
             exit();
         }
-
-        int found = 0;
-        for (int k = 0; k < 50; k++)
+        // Fork A
+        pids[i] = fork();
+        if (pids[i] == 0)
         {
-            if (getpinfo(info) < 0)
+            settickets(tickets1);
+            for (volatile int j = 0; j < 100000000; j++)
             {
-                printf(1, "getpinfo failed\n");
-                break;
+                if (j % 100000 == 0)
+                    yield();
             }
-            for (int j = 0; j < 64; j++)
+            exit();
+        }
+        // Fork B
+        pids[17 + i] = fork();
+        if (pids[17 + i] == 0)
+        {
+            settickets(tickets2);
+            for (volatile int j = 0; j < 100000000; j++)
             {
-                if (info[j].pid == pid3)
-                {
+                if (j % 100000 == 0)
+                    yield();
+            }
+            exit();
+        }
+    }
+    // Fork the remaining process for A (17th process)
+    pids[16] = fork();
+    if (pids[16] == 0)
+    {
+        settickets(tickets1);
+        for (volatile int j = 0; j < 100000000; j++)
+        {
+            if (j % 100000 == 0)
+                yield();
+        }
+        exit();
+    }
+    // Fork the remaining process for B (17th process)
+    pids[33] = fork();
+    if (pids[33] == 0)
+    {
+        settickets(tickets2);
+        for (volatile int j = 0; j < 100000000; j++)
+        {
+            if (j % 100000 == 0)
+                yield();
+        }
+        exit();
+    }
+
+    sleep(50); // Keep at 50 ticks to capture scheduling events while processes are running
+
+    if (getpinfo(info) < 0)
+    {
+        printf(1, "getpinfo failed\n");
+    }
+    else
+    {
+        printf(1, "Before wait, looking for processes:\n");
+        for (int j = 0; j < 64; j++)
+        {
+            if (info[j].pid > 0)
+                printf(1, "info[%d]: pid=%d, tickets=%d, scheduled=%d\n",
+                       j, info[j].pid, info[j].tickets, info[j].ticks_scheduled);
+            for (int k = 0; k < 17; k++) // Process A
+                if (info[j].pid == pids[k])
+                    sched1 += info[j].ticks_scheduled;
+            for (int k = 17; k < 34; k++) // Process B
+                if (info[j].pid == pids[k])
+                    sched2 += info[j].ticks_scheduled;
+            for (int k = 34; k < 50; k++) // Process C
+                if (info[j].pid == pids[k])
                     sched3 += info[j].ticks_scheduled;
-                    found = 1;
-                    if (info[j].ticks_scheduled > 0)
-                        /*printf(1, "Captured pid=%d, ticks_scheduled=%d (total sched3=%d)\n",
-                               pid3, info[j].ticks_scheduled, sched3);*/
-                        break;
-                }
-            }
-            yield();
         }
-        if (!found)
-        {
-            printf(1, "Failed to capture scheduling data for pid=%d\n", pid3);
-        }
+    }
 
+    for (i = 0; i < 50; i++)
+    {
         wait();
-        yield();
     }
 
     end_time = uptime();
@@ -297,10 +257,8 @@ void run_switch_test(int tickets1, int tickets2, int tickets3, int *sched1_out, 
     for (i = 0; i < 64; i++)
     {
         if (info[i].pid > 0)
-        {
-        }
-        /*{printf(1, "info[%d]: pid=%d, tickets=%d, scheduled=%d\n",
-               i, info[i].pid, info[i].tickets, info[i].ticks_scheduled);}*/
+            printf(1, "info[%d]: pid=%d, tickets=%d, scheduled=%d\n",
+                   i, info[i].pid, info[i].tickets, info[i].ticks_scheduled);
     }
 
     int total_sched = sched1 + sched2 + sched3;
@@ -334,8 +292,8 @@ int main(int argc, char *argv[])
     printf(1, "Starting lottery scheduler tests\n");
 
     int num_runs = 10;
-    int total_a, total_b, total_c; // To accumulate schedules for each process
-    int total_schedules;           // To accumulate total schedules across all runs
+    int total_a, total_b, total_c;
+    int total_schedules;
 
     // Test 1: CPU-heavy
     total_a = 0;
@@ -346,7 +304,7 @@ int main(int argc, char *argv[])
     {
         int sched_a = 0, sched_b = 0, sched_c = 0;
         printf(1, "Run %d:\n", i + 1);
-        run_workload_test(30, 20, 10, 10000000, 10000000, 10000000, 0, 0, 0, "Test 1: CPU-heavy",
+        run_workload_test(30, 20, 10, 50000000, 50000000, 50000000, 0, 0, 0, "Test 1: CPU-heavy",
                           &sched_a, &sched_b, &sched_c);
 
         total_a += sched_a;
