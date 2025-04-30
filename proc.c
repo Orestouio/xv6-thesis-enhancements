@@ -7,16 +7,18 @@
 #include "proc.h"
 #include "spinlock.h"
 
-// Simple Linear Congruential Generator (LCG) with better properties
+// Random number generator state
 static unsigned int randstate = 1;
 
+// Seed the random number generator
 void srand(unsigned int seed)
 {
   randstate = seed;
-  if (randstate == 0) // Xorshift requires a non-zero state
+  if (randstate == 0) // Ensure non-zero state for Xorshift
     randstate = 1;
 }
 
+// Generate a random number using Xorshift algorithm
 unsigned int rand(void)
 {
   unsigned int x = randstate;
@@ -27,43 +29,44 @@ unsigned int rand(void)
   return x & 0x7fffffff;
 }
 
+// Generate a random number in the range [0, max)
 unsigned int rand_range(unsigned int max)
 {
-  // Avoid modulo bias by rejecting values that would skew the distribution
   unsigned int threshold = (0x7fffffff / max) * max;
   unsigned int r;
   do
   {
     r = rand();
-  } while (r >= threshold);
+  } while (r >= threshold); // Avoid modulo bias
   return r % max;
 }
 
+// Process table and lock
 struct proc ptable[NPROC];
 struct spinlock ptable_lock;
 
 static struct proc *initproc;
-
 int nextpid = 1;
+
 extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+// Initialize the process table lock
 void pinit(void)
 {
   initlock(&ptable_lock, "ptable");
 }
 
-// Must be called with interrupts disabled
+// Get the current CPU ID (must be called with interrupts disabled)
 int cpuid(void)
 {
   return mycpu() - cpus;
 }
 
-// Must be called with interrupts disabled
-struct cpu *
-mycpu(void)
+// Get the current CPU structure (must be called with interrupts disabled)
+struct cpu *mycpu(void)
 {
   int apicid, i;
 
@@ -79,10 +82,8 @@ mycpu(void)
   panic("unknown apicid\n");
 }
 
-// Disable interrupts so that we are not rescheduled
-// while reading proc from the cpu structure
-struct proc *
-myproc(void)
+// Get the current process (disables interrupts to prevent rescheduling)
+struct proc *myproc(void)
 {
   struct cpu *c;
   struct proc *p;
@@ -93,69 +94,62 @@ myproc(void)
   return p;
 }
 
-// PAGEBREAK: 32
-// Look in the process table for an UNUSED proc.
-// If found, change state to EMBRYO and initialize
-// state required to run in the kernel.
-// Otherwise return 0.
-static struct proc *
-allocproc(void)
+// Allocate a new process structure from the process table
+static struct proc *allocproc(void)
 {
   struct proc *p;
   char *sp;
 
   acquire(&ptable_lock);
   for (p = ptable; p < &ptable[NPROC]; p++)
+  {
     if (p->state == UNUSED)
-      goto found;
+    {
+      p->state = EMBRYO;
+      p->tickets = 1;         // Default to 1 ticket
+      p->ticks_scheduled = 0; // Initialize scheduling counter
+      p->pid = nextpid++;
+      release(&ptable_lock);
+
+      // Allocate kernel stack
+      if ((p->kstack = kalloc()) == 0)
+      {
+        acquire(&ptable_lock);
+        p->state = UNUSED;
+        release(&ptable_lock);
+        return 0;
+      }
+      sp = p->kstack + KSTACKSIZE;
+
+      // Set up trap frame
+      sp -= sizeof *p->tf;
+      p->tf = (struct trapframe *)sp;
+
+      // Set up context to start at forkret
+      sp -= 4;
+      *(uint *)sp = (uint)trapret;
+
+      sp -= sizeof *p->context;
+      p->context = (struct context *)sp;
+      memset(p->context, 0, sizeof *p->context);
+      p->context->eip = (uint)forkret;
+
+      return p;
+    }
+  }
   release(&ptable_lock);
   return 0;
-
-found:
-  p->state = EMBRYO;
-  p->tickets = 1;         // Default to 1 ticket
-  p->ticks_scheduled = 0; // Initialize counter
-  p->expected_schedules = 0;
-  p->ticket_boost = 0; // Initialize
-  p->pid = nextpid++;
-
-  release(&ptable_lock);
-
-  // Allocate kernel stack.
-  if ((p->kstack = kalloc()) == 0)
-  {
-    p->state = UNUSED;
-    return 0;
-  }
-  sp = p->kstack + KSTACKSIZE;
-
-  // Leave room for trap frame.
-  sp -= sizeof *p->tf;
-  p->tf = (struct trapframe *)sp;
-
-  // Set up new context to start executing at forkret,
-  // which returns to trapret.
-  sp -= 4;
-  *(uint *)sp = (uint)trapret;
-
-  sp -= sizeof *p->context;
-  p->context = (struct context *)sp;
-  memset(p->context, 0, sizeof *p->context);
-  p->context->eip = (uint)forkret;
-
-  return p;
 }
 
-// PAGEBREAK: 32
-// Set up first user process.
+// Set up the first user process
 void userinit(void)
 {
   struct proc *p;
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-
   initproc = p;
+
   if ((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
@@ -167,12 +161,12 @@ void userinit(void)
   p->tf->ss = p->tf->ds;
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
-  p->tf->eip = 0; // beginning of initcode.S
+  p->tf->eip = 0; // Start of initcode.S
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  // Seed the random number generator with a combination of ticks, CPU ID, and PID
+  // Seed the random number generator
   acquire(&tickslock);
   srand(ticks + lapicid() + p->pid);
   release(&tickslock);
@@ -182,8 +176,7 @@ void userinit(void)
   release(&ptable_lock);
 }
 
-// Grow current process's memory by n bytes.
-// Return 0 on success, -1 on failure.
+// Grow the current process's memory by n bytes
 int growproc(int n)
 {
   uint sz;
@@ -205,9 +198,7 @@ int growproc(int n)
   return 0;
 }
 
-// Create a new process copying p as the parent.
-// Sets up stack to return as if from system call.
-// Caller must set state of returned proc to RUNNABLE.
+// Create a new process by copying the parent
 int fork(void)
 {
   int i, pid;
@@ -215,9 +206,7 @@ int fork(void)
   struct proc *curproc = myproc();
 
   if ((np = allocproc()) == 0)
-  {
     return -1;
-  }
 
   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
   {
@@ -240,7 +229,6 @@ int fork(void)
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
-
   np->tickets = curproc->tickets;
 
   acquire(&ptable_lock);
@@ -250,9 +238,7 @@ int fork(void)
   return pid;
 }
 
-// Exit the current process.  Does not return.
-// An exited process remains in the zombie state
-// until its parent calls wait() to find out it exited.
+// Exit the current process
 void exit(void)
 {
   struct proc *curproc = myproc();
@@ -277,7 +263,6 @@ void exit(void)
   curproc->cwd = 0;
 
   acquire(&ptable_lock);
-
   wakeup1(curproc->parent);
 
   for (p = ptable; p < &ptable[NPROC]; p++)
@@ -295,8 +280,7 @@ void exit(void)
   panic("zombie exit");
 }
 
-// Wait for a child process to exit and return its pid.
-// Return -1 if this process has no children.
+// Wait for a child process to exit and return its PID
 int wait(void)
 {
   struct proc *p;
@@ -338,14 +322,7 @@ int wait(void)
   }
 }
 
-// PAGEBREAK: 42
-// Per-CPU process scheduler.
-// Each CPU calls scheduler() after setting itself up.
-// Scheduler never returns.  It loops, doing:
-//  - choose a process to run
-//  - swtch to start running that process
-//  - eventually that process transfers control
-//      via swtch back to the scheduler.
+// Lottery scheduler
 void scheduler(void)
 {
   struct proc *p;
@@ -355,8 +332,6 @@ void scheduler(void)
   int total_tickets;
   int winner;
   int current_tickets;
-  int total_scheds = 0;
-  static int winner_histogram[100] = {0};
   static int sched_count = 0;
 
   c->proc = 0;
@@ -367,16 +342,15 @@ void scheduler(void)
 
     total_tickets = 0;
     runnable_count = 0;
-    total_scheds = 0;
     acquire(&ptable_lock);
 
+    // Collect all RUNNABLE processes
     for (p = ptable; p < &ptable[NPROC]; p++)
     {
       if (p->state == RUNNABLE)
       {
         runnable_procs[runnable_count++] = p;
-        total_tickets += p->tickets + p->ticket_boost;
-        total_scheds += p->ticks_scheduled;
+        total_tickets += p->tickets;
       }
     }
 
@@ -386,71 +360,7 @@ void scheduler(void)
       continue;
     }
 
-    // Track processes by ticket groups for Test 2
-    int group_tickets[3] = {0, 0, 0}; // For tickets 30, 20, 10
-    int group_sched[3] = {0, 0, 0};
-    int group_count[3] = {0, 0, 0};
-    for (int i = 0; i < runnable_count; i++)
-    {
-      p = runnable_procs[i];
-      if (p->tickets == 30)
-      {
-        group_tickets[0] += p->tickets;
-        group_sched[0] += p->ticks_scheduled;
-        group_count[0]++;
-      }
-      else if (p->tickets == 20)
-      {
-        group_tickets[1] += p->tickets;
-        group_sched[1] += p->ticks_scheduled;
-        group_count[1]++;
-      }
-      else if (p->tickets == 10)
-      {
-        group_tickets[2] += p->tickets;
-        group_sched[2] += p->ticks_scheduled;
-        group_count[2]++;
-      }
-    }
-
-    // Dynamic boost frequency: every 5 events if >10 processes, otherwise every 10
-    int boost_interval = (runnable_count > 10) ? 5 : 10;
-    if (total_scheds > 0 && (sched_count % boost_interval == 0))
-    {
-      for (int g = 0; g < 3; g++)
-      {
-        if (group_count[g] == 0)
-          continue;
-        int expected = (group_tickets[g] * total_scheds) / total_tickets;
-        int group_boost = 0;
-        if (group_sched[g] < expected)
-        {
-          group_boost = (expected - group_sched[g]); // Aggressive boost
-        }
-        int boost_per_proc = group_count[g] > 0 ? group_boost / group_count[g] : 0;
-        int min_boost = (runnable_count > 10) ? 5 : 2; // Dynamic minimum boost
-        for (int i = 0; i < runnable_count; i++)
-        {
-          p = runnable_procs[i];
-          if ((g == 0 && p->tickets == 30) || (g == 1 && p->tickets == 20) || (g == 2 && p->tickets == 10))
-          {
-            p->ticket_boost = boost_per_proc;
-            if (p->tickets <= 10 && p->ticket_boost < min_boost)
-            {
-              p->ticket_boost = min_boost;
-            }
-            // Adjusted cap: allow boost up to 2x tickets for low-ticket processes
-            int boost_cap = (p->tickets <= 10) ? 2 * p->tickets : p->tickets;
-            if (p->ticket_boost > boost_cap)
-            {
-              p->ticket_boost = boost_cap;
-            }
-          }
-        }
-      }
-    }
-
-    // Shuffle runnable_procs to eliminate ordering bias
+    // Shuffle runnable processes to eliminate ordering bias
     for (int i = runnable_count - 1; i > 0; i--)
     {
       srand(ticks + lapicid() + randstate + i);
@@ -460,19 +370,16 @@ void scheduler(void)
       runnable_procs[j] = temp;
     }
 
-    srand(ticks + lapicid() + randstate + runnable_count + total_scheds);
+    // Pick a random winning ticket
+    srand(ticks + lapicid() + randstate + runnable_count + sched_count);
     winner = rand_range(total_tickets);
 
-    if (total_tickets <= 100)
-    {
-      winner_histogram[winner]++;
-    }
-
+    // Select the process whose ticket range includes the winner
     current_tickets = 0;
     for (int i = 0; i < runnable_count; i++)
     {
       p = runnable_procs[i];
-      int effective_tickets = p->tickets + p->ticket_boost;
+      int effective_tickets = p->tickets;
       if (winner < effective_tickets + current_tickets)
       {
         c->proc = p;
@@ -488,17 +395,11 @@ void scheduler(void)
     }
 
     release(&ptable_lock);
-    sched_count++; // Increment sched_count after each scheduling event
+    sched_count++;
   }
 }
 
-// Enter scheduler.  Must hold only ptable_lock
-// and have changed proc->state. Saves and restores
-// intena because intena is a property of this
-// kernel thread, not this CPU. It should
-// be proc->intena and proc->ncli, but that would
-// break in the few places where a lock is held but
-// there's no process.
+// Enter the scheduler (must hold ptable_lock)
 void sched(void)
 {
   int intena;
@@ -517,7 +418,7 @@ void sched(void)
   mycpu()->intena = intena;
 }
 
-// Give up the CPU for one scheduling round.
+// Yield the CPU for one scheduling round
 void yield(void)
 {
   acquire(&ptable_lock);
@@ -526,8 +427,7 @@ void yield(void)
   release(&ptable_lock);
 }
 
-// A fork child's very first scheduling by scheduler()
-// will swtch here.  "Return" to user space.
+// First scheduling of a fork child, returns to user space
 void forkret(void)
 {
   static int first = 1;
@@ -541,15 +441,13 @@ void forkret(void)
   }
 }
 
-// Atomically release lock and sleep on chan.
-// Reacquires lock when awakened.
+// Sleep on a channel (atomically releases lock and reacquires on wakeup)
 void sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
 
   if (p == 0)
     panic("sleep");
-
   if (lk == 0)
     panic("sleep without lk");
 
@@ -572,11 +470,8 @@ void sleep(void *chan, struct spinlock *lk)
   }
 }
 
-// PAGEBREAK!
-// Wake up all processes sleeping on chan.
-// The ptable lock must be held.
-static void
-wakeup1(void *chan)
+// Wake up all processes sleeping on a channel (must hold ptable_lock)
+static void wakeup1(void *chan)
 {
   struct proc *p;
 
@@ -585,7 +480,7 @@ wakeup1(void *chan)
       p->state = RUNNABLE;
 }
 
-// Wake up all processes sleeping on chan.
+// Wake up all processes sleeping on a channel
 void wakeup(void *chan)
 {
   acquire(&ptable_lock);
@@ -593,9 +488,7 @@ void wakeup(void *chan)
   release(&ptable_lock);
 }
 
-// Kill the process with the given pid.
-// Process won't exit until it returns
-// to user space (see trap in trap.c).
+// Kill the process with the given PID
 int kill(int pid)
 {
   struct proc *p;
@@ -616,10 +509,7 @@ int kill(int pid)
   return -1;
 }
 
-// PAGEBREAK: 36
-// Print a process listing to console.  For debugging.
-// Runs when user types ^P on console.
-// No lock to avoid wedging a stuck machine further.
+// Print process listing for debugging (triggered by ^P)
 void procdump(void)
 {
   static char *states[] = {
