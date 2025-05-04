@@ -101,6 +101,9 @@ extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_shm_open(void);  // Added for shared memory
 extern int sys_shm_close(void); // Added for shared memory
+extern int sys_sem_init(void);
+extern int sys_sem_wait(void);
+extern int sys_sem_post(void);
 
 static int (*syscalls[])(void) = {
     [SYS_fork] sys_fork,
@@ -126,6 +129,9 @@ static int (*syscalls[])(void) = {
     [SYS_close] sys_close,
     [SYS_shm_open] sys_shm_open,   // Added for shared memory
     [SYS_shm_close] sys_shm_close, // Added for shared memory
+    [SYS_sem_init] sys_sem_init,
+    [SYS_sem_wait] sys_sem_wait,
+    [SYS_sem_post] sys_sem_post,
 };
 
 void syscall(void)

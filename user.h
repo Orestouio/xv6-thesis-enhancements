@@ -28,6 +28,11 @@ int uptime(void);
 int shm_open(const char *name, int size);
 int shm_close(int addr);
 
+// Semaphores
+int sem_init(int);
+int sem_wait(int);
+int sem_post(int);
+
 // ulib.c
 int stat(const char *, struct stat *);
 char *strcpy(char *, const char *);

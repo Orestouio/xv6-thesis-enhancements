@@ -24,6 +24,9 @@ static void wakeup1(void *chan);
 // Shared memory table
 struct shm shmtable[NSHM];
 
+// Semaphore table
+struct sem semtable[NSEM];
+
 // Initialize shared memory table
 void shminit(void)
 {
@@ -32,6 +35,173 @@ void shminit(void)
     shmtable[i].in_use = 0;
     initlock(&shmtable[i].lock, "shm");
   }
+}
+
+// Initialize semaphore table
+void seminit(void)
+{
+  for (int i = 0; i < NSEM; i++)
+  {
+    semtable[i].in_use = 0;
+    initlock(&semtable[i].lock, "sem");
+    semtable[i].value = 0;
+    semtable[i].queue_head = 0;
+    semtable[i].queue_tail = 0;
+    for (int j = 0; j < NPROC; j++)
+    {
+      semtable[i].queue[j] = 0;
+    }
+  }
+}
+
+// System call: sem_init(value)
+// Allocates a semaphore, initializes it with the given value, and returns its ID
+// Returns the semaphore ID (index in semtable) on success, -1 on failure
+int sys_sem_init(void)
+{
+  int value;
+  struct proc *curproc = myproc();
+
+  // Get argument
+  if (argint(0, &value) < 0 || value < 0)
+    return -1;
+
+  // Check if the process can open more semaphores
+  if (curproc->sem_count >= MAX_SEM)
+    return -1;
+
+  acquire(&ptable.lock);
+
+  // Find a free semaphore slot
+  int sem_id = -1;
+  for (int i = 0; i < NSEM; i++)
+  {
+    if (!semtable[i].in_use)
+    {
+      sem_id = i;
+      break;
+    }
+  }
+
+  if (sem_id == -1)
+  {
+    release(&ptable.lock);
+    return -1; // No free semaphore slots
+  }
+
+  acquire(&semtable[sem_id].lock);
+
+  // Initialize the semaphore
+  semtable[sem_id].in_use = 1;
+  semtable[sem_id].value = value;
+  semtable[sem_id].queue_head = 0;
+  semtable[sem_id].queue_tail = 0;
+  for (int i = 0; i < NPROC; i++)
+  {
+    semtable[sem_id].queue[i] = 0;
+  }
+
+  // Add the semaphore ID to the process's list
+  curproc->sem_ids[curproc->sem_count] = sem_id;
+  curproc->sem_count++;
+
+  release(&semtable[sem_id].lock);
+  release(&ptable.lock);
+
+  return sem_id;
+}
+
+// System call: sem_wait(sem_id)
+// Decrements the semaphore's value; if the value becomes negative, the process blocks
+// Returns 0 on success, -1 on failure
+int sys_sem_wait(void)
+{
+  int sem_id;
+  struct proc *curproc = myproc();
+
+  // Get argument
+  if (argint(0, &sem_id) < 0 || sem_id < 0 || sem_id >= NSEM)
+    return -1;
+
+  // Check if the semaphore is in use
+  acquire(&ptable.lock);
+  if (!semtable[sem_id].in_use)
+  {
+    release(&ptable.lock);
+    return -1;
+  }
+  release(&ptable.lock);
+
+  acquire(&semtable[sem_id].lock);
+
+  semtable[sem_id].value--;
+
+  if (semtable[sem_id].value < 0)
+  {
+    // Add the process to the wait queue
+    if ((semtable[sem_id].queue_tail + 1) % NPROC == semtable[sem_id].queue_head)
+    {
+      // Queue is full
+      release(&semtable[sem_id].lock);
+      return -1;
+    }
+
+    semtable[sem_id].queue[semtable[sem_id].queue_tail] = curproc;
+    semtable[sem_id].queue_tail = (semtable[sem_id].queue_tail + 1) % NPROC;
+
+    // Block the process
+    sleep(curproc, &semtable[sem_id].lock);
+  }
+
+  release(&semtable[sem_id].lock);
+  return 0;
+}
+
+// System call: sem_post(sem_id)
+// Increments the semaphore's value; if there are waiting processes, wakes one up
+// Returns 0 on success, -1 on failure
+int sys_sem_post(void)
+{
+  int sem_id;
+  struct proc *p = 0;
+
+  // Get argument
+  if (argint(0, &sem_id) < 0 || sem_id < 0 || sem_id >= NSEM)
+    return -1;
+
+  // Check if the semaphore is in use
+  acquire(&ptable.lock);
+  if (!semtable[sem_id].in_use)
+  {
+    release(&ptable.lock);
+    return -1;
+  }
+  release(&ptable.lock);
+
+  acquire(&semtable[sem_id].lock);
+
+  semtable[sem_id].value++;
+
+  if (semtable[sem_id].value <= 0)
+  {
+    // There are waiting processes; wake one up
+    if (semtable[sem_id].queue_head != semtable[sem_id].queue_tail)
+    {
+      p = semtable[sem_id].queue[semtable[sem_id].queue_head];
+      semtable[sem_id].queue[semtable[sem_id].queue_head] = 0;
+      semtable[sem_id].queue_head = (semtable[sem_id].queue_head + 1) % NPROC;
+    }
+  }
+
+  release(&semtable[sem_id].lock);
+
+  // Wake up the process after releasing the semaphore lock
+  if (p)
+  {
+    wakeup(p);
+  }
+
+  return 0;
 }
 
 // System call: shm_open(name, size)
@@ -291,6 +461,9 @@ found:
   // Initialize shared memory mappings
   p->shm_count = 0;
 
+  // Initialize semaphore tracking
+  p->sem_count = 0;
+
   return p;
 }
 
@@ -332,6 +505,9 @@ void userinit(void)
 
   // Initialize shared memory table
   shminit();
+
+  // Initialize semaphore table
+  seminit();
 }
 
 // Grow current process's memory by n bytes.
@@ -424,6 +600,13 @@ int fork(void)
     release(&shm->lock);
   }
 
+  // Copy semaphore IDs to the child
+  np->sem_count = curproc->sem_count;
+  for (i = 0; i < curproc->sem_count; i++)
+  {
+    np->sem_ids[i] = curproc->sem_ids[i];
+  }
+
   pid = np->pid;
 
   acquire(&ptable.lock);
@@ -446,6 +629,38 @@ void exit(void)
 
   if (curproc == initproc)
     panic("init exiting");
+
+  // Clean up semaphores
+  acquire(&ptable.lock);
+  for (int i = 0; i < curproc->sem_count; i++)
+  {
+    int sem_id = curproc->sem_ids[i];
+    if (sem_id < 0 || sem_id >= NSEM || !semtable[sem_id].in_use)
+      continue;
+
+    acquire(&semtable[sem_id].lock);
+
+    // Clear the wait queue
+    while (semtable[sem_id].queue_head != semtable[sem_id].queue_tail)
+    {
+      struct proc *wp = semtable[sem_id].queue[semtable[sem_id].queue_head];
+      semtable[sem_id].queue[semtable[sem_id].queue_head] = 0;
+      semtable[sem_id].queue_head = (semtable[sem_id].queue_head + 1) % NPROC;
+      if (wp != curproc)
+      {
+        wakeup1(wp); // Wake up other waiting processes
+      }
+    }
+
+    // Free the semaphore
+    semtable[sem_id].in_use = 0;
+    semtable[sem_id].value = 0;
+    cprintf("[Kernel Debug] Semaphore %d freed\n", sem_id);
+
+    release(&semtable[sem_id].lock);
+  }
+  curproc->sem_count = 0;
+  release(&ptable.lock);
 
   // Close shared memory mappings
   acquire(&ptable.lock);

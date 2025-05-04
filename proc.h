@@ -7,6 +7,19 @@
 #include "file.h"
 #include "fs.h"
 
+#define NSEM 10   // Maximum number of semaphores in the system
+#define MAX_SEM 4 // Maximum semaphores a process can open
+
+struct sem
+{
+  int value;                 // Semaphore value (count)
+  struct spinlock lock;      // Lock for thread-safe access
+  int in_use;                // Flag indicating if the semaphore slot is in use
+  struct proc *queue[NPROC]; // Wait queue for processes blocked on this semaphore
+  int queue_head;            // Head of the circular wait queue
+  int queue_tail;            // Tail of the circular wait queue
+};
+
 // Per-CPU state
 struct cpu
 {
@@ -90,6 +103,9 @@ struct proc
   void *shm_mappings[MAX_SHM_MAPPINGS];      // Virtual addresses of mapped shared memory
   struct shm *shm_objects[MAX_SHM_MAPPINGS]; // Pointers to shared memory objects
   int shm_count;                             // Number of shared memory mappings
+  // Semaphores
+  int sem_ids[MAX_SEM]; // Array of semaphore IDs this process has opened
+  int sem_count;        // Number of semaphores this process has opened
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -100,5 +116,8 @@ struct proc
 
 // Shared memory table
 extern struct shm shmtable[NSHM];
+
+// Semaphore table
+extern struct sem semtable[NSEM];
 
 #endif // _PROC_H_

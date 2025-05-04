@@ -1,3 +1,6 @@
+#ifndef _SYSCALL_H_
+#define _SYSCALL_H_
+
 // System call numbers
 #define SYS_fork 1
 #define SYS_exit 2
@@ -22,3 +25,8 @@
 #define SYS_close 21
 #define SYS_shm_open 22
 #define SYS_shm_close 23
+#define SYS_sem_init 24
+#define SYS_sem_wait 25
+#define SYS_sem_post 26
+
+#endif // _SYSCALL_H_
