@@ -1,0 +1,9 @@
+# xv6 Scheduler Extension
+
+Dissertation work enhancing xv6’s scheduler to priority-based (0-10, 0 highest).
+
+- **Notes:** `Scheduler_Extension.pdf`—baseline vs. priority results.
+- **Code:** See modified files (`proc.c`, `timingtests.c`, etc.) for implementation.
+- **Run:** `make`, then `make qemu`, then `timingtests` at `$`.
+
+Orestis Theodorou, March 2025
