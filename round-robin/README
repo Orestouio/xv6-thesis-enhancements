@@ -1,0 +1,13 @@
+# xv6 Modified Round-Robin Scheduler
+
+This branch contains a modified version of the xv6 operating system's default round-robin scheduler, enhanced with context switch counting for performance analysis. It is part of my dissertation work comparing scheduler performance against a priority-based scheduler.
+
+- **Notes:** `Scheduler_Implementation.pdf`—details baseline round-robin vs. priority scheduler results, including context switch metrics.
+- **Code:** Key modified files include `proc.c` (context switch counter), `timingtests.c` (enhanced test output), `sysproc.c` (new system call), and supporting files (`Makefile`, `proc.h`, `spinlock.h`, `syscall.c`, `syscall.h`, `trap.c`, `user.h`, `usys.S`).
+- **Run:**
+  1. Set the number of CPUs in `Makefile` (`CPUS := 1` or `CPUS := 2`).
+  2. Build: `make clean && make`.
+  3. Run: `make qemu`.
+  4. At the xv6 prompt (`$`), execute `timingtests` to measure performance across seven workloads.
+
+Orestis Theodorou, April 2025
