@@ -2,10 +2,10 @@
 #define _PROC_H_
 
 #include "types.h"
-#include "param.h"    // For NPROC, NCPU, NOFILE, etc.
-#include "spinlock.h" // Needed for struct spinlock in ptable
+#include "param.h"
+#include "spinlock.h"
 
-extern int context_switches; // Declare global variable
+extern int context_switches;
 
 // Forward declarations for structs defined elsewhere
 struct taskstate; // From mmu.h

@@ -402,8 +402,6 @@ void exit(void)
   curproc->completion_time = ticks;
   curproc->state = ZOMBIE;
   sched();
-  // Remove the panic to prevent the "zombie!" message
-  // The process should be cleaned up by its parent via wait
 }
 
 int wait(void)
