@@ -17,10 +17,7 @@
 int fetchint(uint addr, int *ip)
 {
   struct proc *curproc = myproc();
-<<<<<<< HEAD:priority-scheduler/syscall.c
-=======
 
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
   if (addr >= curproc->sz || addr + 4 > curproc->sz)
     return -1;
   *ip = *(int *)(addr);
@@ -29,19 +26,10 @@ int fetchint(uint addr, int *ip)
 
 // Fetch the nul-terminated string at addr from the current process.
 // Doesn't actually copy the string - just sets *pp to point at it.
-<<<<<<< HEAD:priority-scheduler/syscall.c
-// Returns the length of the string (not including nul), or -1 if error.
-=======
-// Returns length of string, not including nul.
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
 int fetchstr(uint addr, char **pp)
 {
   char *s, *ep;
   struct proc *curproc = myproc();
-<<<<<<< HEAD:priority-scheduler/syscall.c
-=======
-
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
   if (addr >= curproc->sz)
     return -1;
   *pp = (char *)addr;
@@ -67,10 +55,6 @@ int argptr(int n, char **pp, int size)
 {
   int i;
   struct proc *curproc = myproc();
-<<<<<<< HEAD:priority-scheduler/syscall.c
-=======
-
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
   if (argint(n, &i) < 0)
     return -1;
   if (size < 0 || (uint)i >= curproc->sz || (uint)i + size > curproc->sz)
@@ -81,12 +65,7 @@ int argptr(int n, char **pp, int size)
 
 // Fetch the nth word-sized system call argument as a string pointer.
 // Check that the pointer is valid and the string is nul-terminated.
-<<<<<<< HEAD:priority-scheduler/syscall.c
 // Returns string length or -1 if error.
-=======
-// (There is no shared writable memory, so the string can't change
-// between this check and being used by the kernel.)
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
 int argstr(int n, char **pp)
 {
   int addr;
@@ -116,16 +95,9 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
-<<<<<<< HEAD:priority-scheduler/syscall.c
 extern int sys_setpriority(void);
 extern int sys_getcontextswitches(void);
-extern int sys_print_sched_log(void); // Add this line
-=======
-extern int sys_settickets(void);
-extern int sys_getpinfo(void);
-extern int sys_yield(void);
-extern int sys_settickets_pid(void);
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
+extern int sys_print_sched_log(void);
 
 static int (*syscalls[])(void) = {
     [SYS_fork] sys_fork,
@@ -149,16 +121,9 @@ static int (*syscalls[])(void) = {
     [SYS_link] sys_link,
     [SYS_mkdir] sys_mkdir,
     [SYS_close] sys_close,
-<<<<<<< HEAD:priority-scheduler/syscall.c
     [SYS_setpriority] sys_setpriority,
     [SYS_getcontextswitches] sys_getcontextswitches,
-    [SYS_print_sched_log] sys_print_sched_log, // Add this line
-=======
-    [SYS_settickets] sys_settickets,
-    [SYS_getpinfo] sys_getpinfo,
-    [SYS_yield] sys_yield,
-    [SYS_settickets_pid] sys_settickets_pid,
->>>>>>> lottery-scheduler:lottery-scheduler/syscall.c
+    [SYS_print_sched_log] sys_print_sched_log,
 };
 
 void syscall(void)

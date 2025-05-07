@@ -181,17 +181,8 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
-<<<<<<< HEAD:lottery-scheduler/Makefile
-<<<<<<< HEAD:priority-scheduler/Makefile
-	_timingtests\
-	_prioritytest\
-=======
-	_lotterytest\
->>>>>>> lottery-scheduler:lottery-scheduler/Makefile
-=======
 	_shmtest\
 	_prodcons\
->>>>>>> shared-memory-semaphores:shared-memory-semaphores/Makefile
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

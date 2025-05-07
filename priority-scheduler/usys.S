@@ -29,13 +29,6 @@ SYSCALL(getpid)
 SYSCALL(sbrk)
 SYSCALL(sleep)
 SYSCALL(uptime)
-<<<<<<< HEAD:priority-scheduler/usys.S
 SYSCALL(setpriority)
 SYSCALL(getcontextswitches)
 SYSCALL(print_sched_log)
-=======
-SYSCALL(settickets)
-SYSCALL(getpinfo)
-SYSCALL(yield)
-SYSCALL(settickets_pid)
->>>>>>> lottery-scheduler:lottery-scheduler/usys.S

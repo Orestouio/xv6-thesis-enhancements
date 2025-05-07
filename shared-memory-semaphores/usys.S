@@ -29,21 +29,8 @@ SYSCALL(getpid)
 SYSCALL(sbrk)
 SYSCALL(sleep)
 SYSCALL(uptime)
-<<<<<<< HEAD:lottery-scheduler/usys.S
-<<<<<<< HEAD:priority-scheduler/usys.S
-SYSCALL(setpriority)
-SYSCALL(getcontextswitches)
-SYSCALL(print_sched_log)
-=======
-SYSCALL(settickets)
-SYSCALL(getpinfo)
-SYSCALL(yield)
-SYSCALL(settickets_pid)
->>>>>>> lottery-scheduler:lottery-scheduler/usys.S
-=======
 SYSCALL(shm_open)
 SYSCALL(shm_close)
 SYSCALL(sem_init)
 SYSCALL(sem_wait)
 SYSCALL(sem_post)
->>>>>>> shared-memory-semaphores:shared-memory-semaphores/usys.S
