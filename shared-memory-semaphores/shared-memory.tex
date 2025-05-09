@@ -14,7 +14,7 @@
 \usepackage{fancyhdr}
 \usepackage{parskip}
 
-% Configuring the listings package for code snippets
+% Configure listings package for code snippets
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
@@ -31,7 +31,7 @@
   language=C
 }
 
-% Configuring hyperlinks
+% Configure hyperlinks
 \hypersetup{
   colorlinks=true,
   linkcolor=blue,
@@ -39,19 +39,36 @@
   citecolor=blue
 }
 
-% Setting up the document header and footer
+% Set up the document header and footer
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{Shared Memory and Semaphore Implementation in xv6}
 \fancyfoot[C]{\thepage}
 
-% Starting the document
+% Start the document
 \begin{document}
+
+% Title Page
+\title{Shared Memory and Semaphore Implementation in xv6}
+\author{Orestis Theodorou}
+\date{May 6, 2025}
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Background and Related Work}
+\label{sec:background}
+
+The xv6 operating system, developed by MIT \cite{xv6}, is a pedagogical platform derived from UNIX v6, designed for teaching operating system concepts. Its original design lacks advanced inter-process communication (IPC) mechanisms and synchronization primitives, limiting its ability to support concurrent programming scenarios.
+
+Shared memory is a fundamental IPC mechanism, as described by Silberschatz et al. \cite{silberschatz2018operating}, allowing processes to share data efficiently by mapping a common memory region into their address spaces. Semaphores, introduced by Dijkstra \cite{dijkstra1965cooperating}, provide a synchronization primitive to coordinate access to shared resources, preventing race conditions in concurrent environments. These mechanisms are essential for scenarios like the producer-consumer problem, a classic synchronization challenge in operating systems.
+
+This work implements shared memory and semaphores in xv6, enabling efficient IPC and synchronization, and validates their functionality through a producer-consumer application, addressing a gap in xv6’s original design.
 
 \section{Shared Memory and Semaphore Implementation in xv6}
 \label{sec:implementation}
 
-% Introducing the purpose and context of the project
 This section delineates the design, implementation, and rigorous testing of shared memory and semaphore mechanisms within xv6, a pedagogical operating system. Shared memory serves as an efficient inter-process communication (IPC) primitive, enabling multiple processes to access a common memory region for seamless data sharing. Semaphores, as a synchronization mechanism, ensure coordinated access to these shared resources. Together, these components facilitate a robust producer-consumer application, exemplifying practical IPC and synchronization in xv6.
 
 \subsection{Shared Memory Implementation}
@@ -60,7 +77,6 @@ This section delineates the design, implementation, and rigorous testing of shar
 \subsubsection{Design Overview}
 \label{subsubsec:shared-memory-design}
 
-% Defining the goals and constraints of the shared memory system
 The shared memory system in xv6 is engineered to enable processes to create, access, and manage shared memory regions identified by unique string identifiers. The system is designed with the following key features:
 \begin{itemize}
   \item \textbf{Named Shared Memory Regions}: Processes can create or access shared memory regions using a string identifier (e.g., \texttt{/shm1}).
@@ -69,7 +85,6 @@ The shared memory system in xv6 is engineered to enable processes to create, acc
   \item \textbf{Reference Counting}: Shared memory regions are automatically deallocated when no processes reference them, ensuring efficient resource management.
 \end{itemize}
 
-% Describing the data structures used
 The shared memory implementation is supported by two primary data structures:
 \begin{itemize}
   \item \textbf{Shared Memory Table (\texttt{shmtable})}: A global array of \texttt{NSHM} (set to 10) \texttt{shm} structures, each representing a shared memory object. The \texttt{shm} structure, defined in \texttt{proc.h}, comprises:
@@ -89,7 +104,6 @@ The shared memory implementation is supported by two primary data structures:
     \end{itemize}
 \end{itemize}
 
-% Explaining the system calls
 The shared memory system provides two system calls to user space:
 \begin{itemize}
   \item \texttt{shm\_open(const char *name, int size)}: Creates or opens a shared memory region identified by \texttt{name} with the specified \texttt{size}, mapping it into the process’s address space and returning the virtual address.
@@ -99,7 +113,6 @@ The shared memory system provides two system calls to user space:
 \subsubsection{Implementation Details}
 \label{subsubsec:shared-memory-implementation-details}
 
-% Describing the kernel-side implementation
 The shared memory system is implemented within the xv6 kernel through modifications to several files:
 
 \begin{itemize}
@@ -109,7 +122,6 @@ The shared memory system is implemented within the xv6 kernel through modificati
   \item \textbf{usys.S} and \textbf{user.h}: Provide user-space wrappers and prototypes for \texttt{shm\_open} and \texttt{shm\_close}.
 \end{itemize}
 
-% Detailing the sys_shm_open implementation
 The \texttt{sys\_shm\_open} system call executes the following steps:
 \begin{enumerate}
   \item \textbf{Argument Retrieval}: Extracts the \texttt{name} and \texttt{size} arguments using \texttt{argstr} and \texttt{argint}.
@@ -121,7 +133,6 @@ The \texttt{sys\_shm\_open} system call executes the following steps:
   \item \textbf{Reference Management}: Increments the \texttt{ref\_count} of the shared memory object and updates the process’s \texttt{shm\_mappings} and \texttt{shm\_objects}.
 \end{enumerate}
 
-% Detailing the sys_shm_close implementation
 The \texttt{sys\_shm\_close} system call:
 \begin{enumerate}
   \item \textbf{Argument Retrieval}: Extracts the virtual \texttt{addr} using \texttt{argint}.
@@ -131,7 +142,6 @@ The \texttt{sys\_shm\_close} system call:
   \item \textbf{Cleanup}: Updates the process’s \texttt{shm\_mappings} and \texttt{shm\_count}.
 \end{enumerate}
 
-% Explaining fork and exit modifications
 To support shared memory across process boundaries:
 \begin{itemize}
   \item \textbf{fork}: Copies the parent’s \texttt{shm\_mappings}, \texttt{shm\_objects}, and \texttt{shm\_count} to the child, explicitly mapping each shared memory region into the child’s page table using \texttt{mappages} and incrementing the \texttt{ref\_count}.
@@ -141,7 +151,6 @@ To support shared memory across process boundaries:
 \subsubsection{Testing and Validation}
 \label{subsubsec:shared-memory-testing}
 
-% Describing the initial test program
 An initial test program, \texttt{shmtest.c}, was developed to validate the basic functionality of the shared memory system. The program opens a shared memory region named \texttt{/shm1}, forks a child process, and performs the following:
 \begin{itemize}
   \item The parent initializes the shared memory to 0.
@@ -150,7 +159,6 @@ An initial test program, \texttt{shmtest.c}, was developed to validate the basic
 \end{itemize}
 The test confirmed that both processes could access the shared memory, with the parent observing the child’s update (output: \texttt{Child: Shared memory value = 0}, \texttt{Child: Set shared memory to 42}, \texttt{Parent: Shared memory value = 42}, \texttt{[Kernel Debug] Shared memory /shm1 freed}).
 
-% Describing the extended test program
 The test program was extended to validate additional scenarios, with the updated version overwriting the original \texttt{shmtest.c}. The extended test includes the following cases:
 \begin{itemize}
   \item \textbf{Multiple Shared Memory Regions}: Opens two regions (\texttt{/shm1}, \texttt{/shm2}) in both parent and child processes, verifying isolation and correct updates.
@@ -198,7 +206,6 @@ All tests completed
 \subsubsection{Challenges and Solutions}
 \label{subsubsec:shared-memory-challenges}
 
-% Summarizing the challenges faced
 Several challenges were encountered during the implementation of the shared memory system:
 \begin{itemize}
   \item \textbf{Implicit Declaration of \texttt{mappages}}: Resolved by removing the \texttt{static} keyword from \texttt{mappages} in \texttt{vm.c} and ensuring its prototype in \texttt{defs.h}.
@@ -215,17 +222,15 @@ Several challenges were encountered during the implementation of the shared memo
 \subsubsection{Design Overview}
 \label{subsubsec:semaphore-design}
 
-% Defining the goals and constraints of the semaphore system
 The semaphore system in xv6 is designed to provide a robust synchronization primitive for coordinating access to shared resources, such as the shared memory regions implemented previously. The system supports the following key features:
 \begin{itemize}
   \item \textbf{Counting Semaphores}: Semaphores maintain a non-negative integer value, enabling both mutual exclusion (binary semaphore) and resource counting (general semaphore).
   \item \textbf{Blocking and Waking}: Processes waiting on a semaphore with a value of 0 are blocked until another process signals the semaphore, ensuring proper synchronization.
   \item \textbf{Inheritance Across Fork}: Semaphore associations are inherited by child processes during a \texttt{fork} operation, maintaining synchronization across process boundaries.
-  \item \textbf{Automatic Cleanup}: SemapTiny are automatically deallocated when a process exits, with proper handling of waiting processes to prevent deadlocks.
+  \item \textbf{Automatic Cleanup}: Semaphores are automatically deallocated when a process exits, with proper handling of waiting processes to prevent deadlocks.
   \item \textbf{Error Handling}: The system includes mechanisms to handle invalid semaphore IDs and queue overflows, ensuring robust operation under erroneous conditions.
 \end{itemize}
 
-% Describing the data structures used
 The semaphore implementation relies on the following data structures:
 \begin{itemize}
   \item \textbf{Semaphore Table (\texttt{semtable})}: A global array of \texttt{NSEM} (set to 10) \texttt{sem} structures, each representing a semaphore. The \texttt{sem} structure, defined in \texttt{proc.h}, includes:
@@ -242,7 +247,6 @@ The semaphore implementation relies on the following data structures:
     \end{itemize}
 \end{itemize}
 
-% Explaining the system calls
 The semaphore system provides three system calls to user space:
 \begin{itemize}
   \item \texttt{sem\_init(int value)}: Allocates a semaphore, initializes it with the given \texttt{value}, and returns its ID (index in \texttt{semtable}).
@@ -253,7 +257,6 @@ The semaphore system provides three system calls to user space:
 \subsubsection{Implementation Details}
 \label{subsubsec:semaphore-implementation-details}
 
-% Describing the kernel-side implementation
 The semaphore system is implemented within the xv6 kernel through modifications to several files:
 
 \begin{itemize}
@@ -263,7 +266,6 @@ The semaphore system is implemented within the xv6 kernel through modifications 
   \item \textbf{usys.S} and \textbf{user.h}: Provide user-space wrappers and prototypes for \texttt{sem\_init}, \texttt{sem\_wait}, and \texttt{sem\_post}.
 \end{itemize}
 
-% Detailing the sys_sem_init implementation
 The \texttt{sys\_sem\_init} system call:
 \begin{enumerate}
   \item \textbf{Argument Retrieval}: Extracts the initial \texttt{value} using \texttt{argint}.
@@ -272,7 +274,6 @@ The \texttt{sys\_sem\_init} system call:
   \item \textbf{Initialization}: Sets the semaphore’s \texttt{value}, initializes the wait queue (\texttt{queue\_head} and \texttt{queue\_tail} set to 0), and adds the semaphore ID to the process’s \texttt{sem\_ids}.
 \end{enumerate}
 
-% Detailing the sys_sem_wait implementation
 The \texttt{sys\_sem\_wait} system call:
 \begin{enumerate}
   \item \textbf{Argument Retrieval}: Extracts the \texttt{sem\_id} using \texttt{argint}.
@@ -281,7 +282,6 @@ The \texttt{sys\_sem\_wait} system call:
   \item \textbf{Blocking}: If \texttt{value} becomes negative, checks if the wait queue is full (returns -1 if so), adds the process to the queue by updating \texttt{queue\_tail}, and calls \texttt{sleep} to block until signaled.
 \end{enumerate}
 
-% Detailing the sys_sem_post implementation
 The \texttt{sys\_sem\_post} system call:
 \begin{enumerate}
   \item \textbf{Argument Retrieval}: Extracts the \texttt{sem\_id} using \texttt{argint}.
@@ -290,7 +290,6 @@ The \texttt{sys\_sem\_post} system call:
   \item \textbf{Waking}: If there are waiting processes (indicated by \texttt{value} $\leq$ 0), removes the process at \texttt{queue\_head} from the queue, updates \texttt{queue\_head}, and calls \texttt{wakeup} after releasing the semaphore lock to make the process runnable.
 \end{enumerate}
 
-% Explaining fork and exit modifications
 To support semaphores across process boundaries:
 \begin{itemize}
   \item \textbf{fork}: Copies the parent’s \texttt{sem\_ids} and \texttt{sem\_count} to the child, ensuring the child inherits the same semaphore associations without modifying the semaphore state in \texttt{semtable}.
@@ -300,10 +299,8 @@ To support semaphores across process boundaries:
 \subsubsection{Testing and Validation}
 \label{subsubsec:semaphore-testing}
 
-% Describing the producer-consumer test
 A producer-consumer test program, \texttt{prodcons.c}, was developed to validate the semaphore implementation comprehensively. The program uses shared memory to create a circular buffer and employs three semaphores: \texttt{empty} (initially equal to the buffer size) to track empty slots, \texttt{full} (initially 0) to track filled slots, and \texttt{print\_sem} (initially 1) to synchronize console output. The test program was executed under multiple scenarios to ensure robustness:
 
-% Standard test scenario
 \textbf{Standard Test (Buffer Size 5, 10 Items):} The producer generates 10 items, and the consumer reads 10 items, using a circular buffer of size 5. The output of this test is as follows:
 \begin{lstlisting}
 Producer: produced 0 at index 0
@@ -332,7 +329,6 @@ Consumer: consumed 9 from index 4
 [Kernel Debug] Shared memory /buffer freed
 \end{lstlisting}
 
-% Stress test scenario
 \textbf{Stress Test (Buffer Size 2, 20 Items):} To evaluate the semaphore implementation under high contention, the buffer size was reduced to 2, and the number of items was increased to 20. This forces the producer to block frequently when the buffer is full, testing the semaphore’s blocking and waking mechanisms. A representative portion of the output is:
 \begin{lstlisting}
 Producer: produced 0 at index 0
@@ -354,13 +350,11 @@ Consumer: consumed 19 from index 1
 [Kernel Debug] Shared memory /buffer freed
 \end{lstlisting}
 
-% Error handling test scenario
 \textbf{Error Handling Test (Invalid Semaphore ID):} An additional test case was added to \texttt{prodcons.c} to verify error handling by attempting to use an invalid semaphore ID (-1) for \texttt{sem\_wait} and \texttt{sem\_post}. The program correctly detects the invalid ID and exits with an error message:
 \begin{lstlisting}
 prodcons: invalid semaphore ID -1, exiting
 \end{lstlisting}
 
-% Analysis of test results
 The standard test demonstrates that the producer and consumer access the buffer in a synchronized manner, with items produced and consumed in the correct order. The semaphores ensure that the producer blocks when the buffer is full and the consumer blocks when the buffer is empty, preventing race conditions. The \texttt{print\_sem} semaphore eliminates interleaved console output, ensuring clear and readable logs. A small delay in the producer loop balances execution, making the synchronization behavior evident.
 
 The stress test confirms the semaphore’s robustness under high contention, as the producer and consumer continue to operate correctly despite frequent blocking and waking, with no deadlocks or race conditions observed. The error handling test validates that the system gracefully handles invalid inputs, returning appropriate error codes and preventing undefined behavior.
@@ -368,7 +362,6 @@ The stress test confirms the semaphore’s robustness under high contention, as 
 \subsubsection{Challenges and Solutions}
 \label{subsubsec:semaphore-challenges}
 
-% Summarizing the challenges faced during semaphore implementation
 Several challenges were encountered during the semaphore implementation:
 
 \begin{itemize}
@@ -381,13 +374,23 @@ Several challenges were encountered during the semaphore implementation:
 \subsection{Conclusion}
 \label{subsec:conclusion}
 
-% Providing a comprehensive summary of the implementation
 The shared memory and semaphore implementations in xv6 establish a robust and reliable framework for inter-process communication and synchronization. The shared memory system facilitates efficient data sharing through named regions, supports inheritance across \texttt{fork}, and ensures proper resource management, as validated by the \texttt{shmtest} program across diverse scenarios, including edge cases such as maximum mappings and invalid inputs. The semaphore system complements this by providing a synchronization mechanism that ensures coordinated access to shared resources, as demonstrated by the \texttt{prodcons} program. The producer-consumer application successfully operates under both standard and stress conditions, with a buffer size of 5 for normal operation and a reduced size of 2 for high-contention scenarios, producing and consuming 20 items without deadlocks or race conditions. Error handling tests further confirm the system’s resilience by appropriately managing invalid semaphore IDs.
 
-% Discussing the significance of the producer-consumer application
 The successful implementation of the producer-consumer application underscores the practical utility of these mechanisms in xv6. It exemplifies a classic synchronization problem, demonstrating how semaphores can manage shared resources in a multi-process environment, ensuring data consistency and preventing race conditions. The consistent behavior across multiple test runs, including stress tests, highlights the scalability and reliability of the implementation, making it suitable for educational purposes and as a foundation for more complex operating system features.
 
-% Offering detailed future work suggestions
 Future enhancements could further expand the capabilities of this system. Stress testing with multiple producer-consumer pairs sharing the same buffer could provide deeper insights into the semaphore’s performance under concurrent access by numerous processes. Implementing a \texttt{sem\_destroy} system call would allow explicit semaphore cleanup, offering finer control over resource management. Additionally, integrating advanced synchronization primitives, such as condition variables or reader-writer locks, could enable more sophisticated synchronization patterns, such as those required in multi-threaded applications or database systems. Exploring dynamic resizing of the \texttt{semtable} and \texttt{shmtable} arrays could address the current static limits (\texttt{NSHM} and \texttt{NSEM} set to 10), enhancing scalability. These improvements would not only strengthen xv6’s IPC and synchronization capabilities but also provide valuable learning opportunities for understanding operating system design and implementation.
+
+\section{Repository}
+The complete implementation—including \texttt{proc.c}, \texttt{proc.h}, \texttt{shmtest.c}, \texttt{prodcons.c}, and supporting files—is available at \\
+\url{https://github.com/Orestouio/Xv6_SharedMemorySemaphores}.
+
+\begin{thebibliography}{9}
+\bibitem{xv6}
+Cox, R., Kaashoek, F., \& Morris, R. (2019). Xv6: A Simple, Unix-like Teaching Operating System. \textit{MIT CSAIL}.
+\bibitem{silberschatz2018operating}
+Silberschatz, A., Galvin, P. B., \& Gagne, G. (2018). \textit{Operating System Concepts}. Wiley.
+\bibitem{dijkstra1965cooperating}
+Dijkstra, E. W. (1965). Cooperating Sequential Processes. \textit{Programming Languages}, Academic Press.
+\end{thebibliography}
 
 \end{document}

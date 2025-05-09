@@ -5,6 +5,41 @@
 \usepackage{url}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+% Configure listings
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny,
+  tabsize=2,
+  showspaces=false,
+  showstringspaces=false,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{purple},
+  language=C
+}
+
+% Configure header/footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{xv6 Lottery Scheduler: Implementation and Performance Analysis}
+\fancyfoot[C]{\thepage}
+
+% Configure hyperlinks
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
 
 \title{xv6 Lottery Scheduler: Implementation and Performance Analysis}
 \author{Orestis Theodorou}
@@ -13,6 +48,10 @@
 \begin{document}
 
 \maketitle
+
+\begin{abstract}
+This report presents the implementation and evaluation of a lottery scheduler in the xv6 operating system, replacing the default round-robin scheduler with a probabilistic mechanism. Processes are assigned tickets, and scheduling probability is proportional to ticket counts (e.g., tickets 30, 20, 10 yield expected proportions of 50\%, 33\%, 16.67\%). Performance is assessed using the \texttt{lotterytest.c} utility across three workloads under a single-core configuration (\texttt{CPUS := 1}). The lottery scheduler achieves proportional fairness, with deviations within ~2–3\% of expected proportions (e.g., Test 1: 51.1\%, 31.8\%, 16.9\%), significantly improving over the round-robin scheduler’s equal scheduling (33\% each). Optimizations like Fisher-Yates shuffling and increased scheduling events reduce variability, though runtime overhead (e.g., 1810.6 ticks in Test 1) suggests areas for improvement. This implementation enhances xv6’s scheduling flexibility, making it a valuable educational tool.
+\end{abstract}
 
 \section{Introduction}
 This report presents the implementation and evaluation of a lottery scheduler for the xv6 operating system, a teaching-oriented system derived from UNIX, as part of a dissertation project. The xv6 system originally employs a round-robin scheduler, which allocates equal time slices to all processes. In contrast, the lottery scheduler introduced in this work assigns processes a number of tickets (e.g., 30, 20, 10), and the probability of a process being scheduled is proportional to its ticket count (e.g., expected proportions of 50\%, 33\%, 16.67\% for tickets 30, 20, 10, respectively). The performance of this scheduler is evaluated using a custom benchmarking utility, \texttt{lotterytest.c}, under the default single-core configuration (\texttt{CPUS := 1}). This configuration ensures a direct comparison with the round-robin scheduler, as multi-core setups (\texttt{CPUS := 2}) introduce parallelism and scheduling dynamics that require separate analysis, which is deferred to future work. This report details the implementation, evaluates the performance across three distinct tests, compares the lottery scheduler with the round-robin baseline, and demonstrates its effectiveness in achieving proportional fairness in a single-core environment.
@@ -76,6 +115,16 @@ To achieve the current performance, several optimizations were applied based on 
     \item \textbf{Interleaved Forking in Test 2}: A C-A-B forking order was adopted to balance initial scheduling, ensuring low variability (e.g., Process A: 50\% to 50\%).
 \end{itemize}
 
+\subsection{Challenges and Solutions}
+Several challenges were encountered during the implementation of the lottery scheduler:
+
+\begin{itemize}
+    \item \textbf{High Variability in Initial Tests}: Early results for Test 1 showed high variability (e.g., Process A: 43\% to 62\%) due to a low number of scheduling events (~191 per run) and ordering bias. This was resolved by increasing iterations to 500M (raising events to ~753 per run) and adding Fisher-Yates shuffling to eliminate ordering bias, reducing variability to 45\%–55\%.
+    \item \textbf{Poor Randomness Quality}: Initial use of a simple random number generator led to skewed distributions (deviations up to 6.5\%). An Xorshift-based generator was implemented, seeded with multiple sources (\texttt{ticks}, CPU ID, \texttt{randstate}, iteration indices), reducing deviations to ~1\%.
+    \item \textbf{Test Interference}: Early test runs showed interference between workloads (e.g., Test 1 affecting Test 2). A 50ms delay (\texttt{sleep(5)}) was added between test runs in \texttt{lotterytest.c}, ensuring system stabilization and consistent results.
+    \item \textbf{Expected Proportions Display in Test 3}: The output displayed rounded proportions (81\%-16\%-1\%) due to integer division in \texttt{lotterytest.c}. While the actual expected values are 81.97\%-16.39\%-1.64\%, this display issue does not affect the scheduler’s performance and can be addressed by adjusting the output format in future iterations.
+\end{itemize}
+
 This implementation enables the lottery scheduler to achieve proportional fairness, reduce variability through increased scheduling events and shuffling, and provide detailed performance metrics for evaluation in a single-core environment.
 
 \section{Lottery Scheduler Output}
@@ -83,9 +132,9 @@ This implementation enables the lottery scheduler to achieve proportional fairne
 The lottery scheduler was evaluated over 5 runs for each test, with the following results:
 
 \begin{lstlisting}[breaklines=true]
-Test 1: CPU-heavy: Avg 1810.6 ticks (Range: 1787-1851), Schedules: A=51.1%, B=31.8%, C=16.9%
-Test 2: Switch overhead: Avg not measured (Range: not measured), Schedules: A=50.5%, B=32.2%, C=17.2%
-Test 3: Starvation check: Avg 42 ticks (Range: 42-42), Schedules: A=79.3%, B=18.6%, C=1.9%
+Test 1: CPU-heavy: Schedules: A=51.1%, B=31.8%, C=16.9%
+Test 2: Switch overhead: Schedules: A=50.5%, B=32.2%, C=17.2%
+Test 3: Starvation check: Schedules: A=79.3%, B=18.6%, C=1.9%
 \end{lstlisting}
 
 \section{Final Results and Comparison}
@@ -119,7 +168,7 @@ The tests are representative of real-world scheduling scenarios and suitable for
 \end{itemize}
 
 \subsection{Conclusion}
-The lottery scheduler successfully implements its intended functionality: scheduling processes probabilistically based on ticket counts, with mechanisms like Fisher-Yates shuffling and an Xorshift-based random number generator ensuring fairness and reducing variability. The performance results are robust—Tests 1, 2, and 3 achieve deviations within ~2–3\% for most processes, validating the scheduler’s design. Compared to the round-robin scheduler, the lottery scheduler offers significant improvements in scenarios requiring proportional scheduling, as demonstrated by all three tests. The tests are representative of real-world workloads (compute-intensive, high-contention, and priority-based), and the \texttt{sleep(5)} delay ensures result consistency by minimizing interference. This implementation marks a successful enhancement to the xv6 operating system, with ongoing work to further optimize performance.
+The lottery scheduler successfully implements its intended functionality: scheduling processes probabilistically based on ticket counts, with mechanisms like Fisher-Yates shuffling and an Xorshift-based random number generator ensuring fairness and reducing variability. The performance results are robust—Tests 1, 2, and 3 achieve deviations within ~2–3\% for most processes, validating the scheduler’s design. Compared to the round-robin scheduler, the lottery scheduler offers significant improvements in scenarios requiring proportional scheduling, as demonstrated by all three tests. The tests are representative of real-world workloads (compute-intensive, high-contention, and priority-based), and the \texttt{sleep(5)} delay ensures result consistency by minimizing interference. This implementation enhances xv6’s utility as an educational tool, enabling students to explore probabilistic scheduling concepts and their practical implications. The project is ongoing, with further refinements planned to address variability and runtime overhead, as noted in the future enhancements.
 
 \section{Future Enhancements}
 While the lottery scheduler demonstrates robust results in the single-core configuration, areas for improvement remain:

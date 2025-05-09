@@ -14,9 +14,8 @@
 \usepackage{fancyhdr}
 \usepackage{parskip}
 \usepackage{booktabs}
-\usepackage{url}
 
-% Configuring the listings package for code snippets
+% Configure listings package for code snippets
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
@@ -33,7 +32,7 @@
   language=C
 }
 
-% Configuring hyperlinks
+% Configure hyperlinks
 \hypersetup{
   colorlinks=true,
   linkcolor=blue,
@@ -41,105 +40,70 @@
   citecolor=blue
 }
 
-% Setting up the document header and footer
+% Set up the document header and footer
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{Enhancing xv6: Priority Scheduler, Lottery Scheduler, and Shared Memory with Semaphores}
+\fancyhead[L]{Enhancing xv6: Priority and Lottery Scheduling with Shared Memory and Semaphores}
 \fancyfoot[C]{\thepage}
 
-% Starting the document
+% Start the document
 \begin{document}
 
 % Title Page
-\title{Enhancing xv6: Priority Scheduler, Lottery Scheduler, and Shared Memory with Semaphores}
+\title{Enhancing xv6: Priority and Lottery Scheduling with Shared Memory and Semaphores}
 \author{Orestis Theodorou}
 \date{May 6, 2025}
 \maketitle
 
-% Abstract
 \begin{abstract}
-This thesis presents the enhancement of the xv6 operating system through the implementation of three distinct mechanisms: a priority-based scheduler, a lottery scheduler, and shared memory with semaphores. The priority scheduler assigns processes priority levels (0–10) to ensure critical tasks are executed promptly, achieving significant runtime improvements (e.g., 12 ticks vs. 43.5 ticks in starvation tests) compared to the default round-robin scheduler. The lottery scheduler introduces probabilistic scheduling based on ticket counts, achieving proportional fairness with deviations within ~2–3\% of expected values across diverse workloads. The shared memory and semaphore mechanisms enable efficient inter-process communication (IPC) and synchronization, validated through a producer-consumer application under standard and stress conditions. These implementations are rigorously tested in a single-core environment, demonstrating their effectiveness in improving scheduling flexibility and IPC capabilities in xv6. This work provides a comprehensive foundation for educational purposes and future operating system enhancements.
+This thesis enhances the xv6 operating system by implementing three key features: a priority-based scheduler, a lottery scheduler, and shared memory with semaphores. The priority scheduler assigns processes priority levels (0–10), achieving significant performance improvements over the default round-robin scheduler, such as a 72\% runtime reduction in starvation tests (12 ticks vs. 43.5 ticks). The lottery scheduler introduces probabilistic scheduling based on ticket counts, achieving proportional fairness with deviations within ~2–3\% of expected proportions (e.g., 51.1\%, 31.8\%, 16.9\% for tickets 30, 20, 10). The shared memory and semaphore mechanisms enable efficient inter-process communication (IPC) and synchronization, validated through a producer-consumer application under diverse conditions. These enhancements, evaluated in a single-core environment (\texttt{CPUS := 1}), improve xv6’s functionality, making it a more comprehensive platform for operating systems education. Performance comparisons with the round-robin baseline, detailed test results, and future optimization opportunities are presented, highlighting the practical and educational value of this work.
 \end{abstract}
 
-% Introduction
+\tableofcontents
+\newpage
+
 \section{Introduction}
 \label{sec:introduction}
 
-The xv6 operating system, a pedagogical platform derived from UNIX, provides a lightweight environment for exploring operating system concepts. Originally equipped with a round-robin scheduler and lacking advanced IPC mechanisms, xv6 offers an ideal foundation for implementing and evaluating new scheduling and communication primitives. This thesis enhances xv6 through three implementations:
+The xv6 operating system, a pedagogical platform derived from UNIX v6, serves as an ideal environment for exploring operating system concepts due to its simplicity and clarity \cite{xv6}. However, its default design—featuring a round-robin scheduler and lacking advanced inter-process communication (IPC) mechanisms—limits its ability to support complex scheduling and synchronization scenarios. This thesis addresses these limitations by implementing three enhancements: a priority-based scheduler, a lottery scheduler, and shared memory with semaphores. These additions transform xv6 into a more versatile teaching tool, enabling students to explore advanced scheduling techniques and IPC mechanisms through practical implementation and evaluation.
 
-\begin{itemize}
-  \item \textbf{Priority Scheduler}: Replaces the round-robin scheduler with a priority-based mechanism, assigning processes priority levels (0–10, with 0 being the highest) to ensure critical tasks are executed efficiently.
-  \item \textbf{Lottery Scheduler}: Introduces a probabilistic scheduling approach where processes are assigned tickets, and scheduling probability is proportional to ticket counts, ensuring fairness across workloads.
-  \item \textbf{Shared Memory and Semaphores}: Implements shared memory for efficient IPC and semaphores for synchronization, enabling coordinated access to shared resources in a producer-consumer application.
-\end{itemize}
+The priority scheduler replaces the default round-robin scheduler, allowing processes to be scheduled based on priority levels (0–10, with 0 being the highest), incorporating mechanisms like aging and preemption to balance prioritization and fairness. The lottery scheduler introduces a probabilistic approach, where processes are assigned tickets, and scheduling probability is proportional to ticket counts (e.g., tickets 30, 20, 10 yield expected proportions of 50\%, 33\%, 16.67\%). The shared memory and semaphore mechanisms enable efficient IPC and synchronization, supporting concurrent programming scenarios like the producer-consumer problem.
 
-Each implementation is designed and tested in a single-core configuration (\texttt{CPUS := 1}) to ensure direct comparisons with the baseline round-robin scheduler and to isolate the effects of the new mechanisms. This report details the design, implementation, testing, and performance analysis of each component, followed by a discussion of their collective impact on xv6 and potential future enhancements.
+Each implementation is evaluated in a single-core environment (\texttt{CPUS := 1}) to ensure a direct comparison with the round-robin baseline, deferring multi-core analysis (\texttt{CPUS := 2}) to future work due to the additional complexity of parallelism. Performance is assessed using custom benchmarking utilities (\texttt{timingtests.c}, \texttt{lotterytest.c}, \texttt{shmtest.c}, \texttt{prodcons.c}), with results demonstrating significant improvements over the baseline. This thesis documents the design, implementation, and evaluation of these enhancements, highlighting their contributions to xv6 and operating systems education.
 
-% Background/Related Work
 \section{Background and Related Work}
 \label{sec:background}
 
-The xv6 operating system, developed by MIT \cite{xv6}, is a teaching-oriented system that mirrors UNIX v6, providing a simple yet functional platform for studying operating system concepts. Its default round-robin scheduler ensures fairness by allocating equal time slices to all processes, but it lacks mechanisms for prioritizing tasks or allocating CPU time proportionally.
+The xv6 operating system, developed by MIT \cite{xv6}, is designed for educational purposes, providing a lightweight platform to study operating system concepts. Its default round-robin scheduler ensures fairness by allocating equal time slices to all processes, but it lacks mechanisms for prioritizing tasks or supporting proportional scheduling. Additionally, xv6’s original design does not include advanced IPC mechanisms, limiting its ability to handle concurrent programming scenarios.
 
-Scheduling algorithms have been extensively studied in operating system design. Priority scheduling, as discussed in \cite{tanenbaum2008modern}, assigns processes priority levels to ensure critical tasks are executed promptly, though it risks starvation without mitigation strategies like aging. Lottery scheduling, proposed by Waldspurger and Weihl \cite{waldspurger1994lottery}, introduces a probabilistic approach where processes are assigned tickets, and the scheduler selects processes based on ticket proportions, offering fairness and flexibility.
+Priority scheduling, a well-established technique in operating systems, assigns processes priority levels to ensure timely execution of critical tasks \cite{tanenbaum2008modern}. However, it risks starvation for low-priority processes without mitigation strategies like aging. Lottery scheduling, proposed by Waldspurger and Weihl \cite{waldspurger1994lottery}, offers a probabilistic approach, allocating CPU time proportionally based on ticket counts, providing flexibility and fairness. Shared memory and semaphores are fundamental for IPC and synchronization \cite{silberschatz2018operating}. Shared memory allows processes to share data efficiently, while semaphores, introduced by Dijkstra \cite{dijkstra1965cooperating}, coordinate access to shared resources, preventing race conditions in concurrent environments.
 
-Inter-process communication (IPC) and synchronization are fundamental to operating systems. Shared memory, as described in \cite{silberschatz2018operating}, allows processes to share data efficiently by mapping a common memory region into their address spaces. Semaphores, introduced by Dijkstra \cite{dijkstra1965cooperating}, provide a synchronization primitive to coordinate access to shared resources, preventing race conditions in concurrent environments.
+This thesis builds on these concepts, implementing a priority scheduler with aging, a lottery scheduler with optimizations for fairness, and shared memory with semaphores in xv6. These enhancements address gaps in xv6’s original design, enabling students to explore advanced scheduling and IPC concepts through practical implementation and evaluation.
 
-This work builds on these concepts, adapting priority and lottery scheduling to xv6’s single-core environment and introducing shared memory and semaphores to enable efficient IPC and synchronization, addressing gaps in xv6’s original design.
-
-% Priority Scheduler Section
 \section{Priority Scheduler Implementation}
 \label{sec:priority-scheduler}
 
-\subsection{Design Overview}
-\label{subsec:priority-design}
-
-The priority scheduler replaces xv6’s round-robin scheduler, introducing a mechanism where processes are scheduled based on priority levels (0–10, with 0 being the highest). The design includes:
-
-\begin{itemize}
-  \item \textbf{Priority Levels}: Processes are assigned priorities from 0 (highest) to 10 (lowest), with a default priority of 5.
-  \item \textbf{Priority Queue}: A scheduling queue organizes processes by priority, ensuring high-priority processes are executed first.
-  \item \textbf{Dynamic Adjustment}: An aging mechanism adjusts priorities to prevent starvation, increasing priority (lowering the priority number) for waiting processes.
-  \item \textbf{Fairness for I/O-Bound Processes}: A short-lived FIFO queue at priority 5 ensures fairness for I/O-bound processes.
-  \item \textbf{Preemption}: Timer interrupts trigger preemption if a higher-priority process is runnable.
-\end{itemize}
-
-\subsection{Implementation Details}
+\subsection{Implementation Overview}
 \label{subsec:priority-implementation}
 
-The priority scheduler was implemented under the single-core configuration (\texttt{CPUS := 1}) to ensure a direct comparison with the round-robin scheduler. The following modifications were made:
+The priority scheduler replaces xv6’s round-robin scheduler, introducing a mechanism where processes are scheduled based on priority levels (0–10, with 0 being the highest). The implementation was designed and tested under a single-core configuration (\texttt{CPUS := 1}) to ensure a direct comparison with the round-robin baseline. Key modifications include:
 
 \begin{itemize}
-  \item \textbf{\texttt{proc.h}}: Extended \texttt{struct proc} with fields: \texttt{int priority}, \texttt{int wait\_ticks}, \texttt{int creation\_time}, \texttt{int completion\_time}, \texttt{int waiting\_time}, \texttt{int last\_runnable\_tick}, \texttt{int first\_run\_time}, \texttt{int has\_run}, \texttt{int cpu\_time}, and \texttt{struct proc *next} for priority queues. In \texttt{allocproc}, new processes are initialized with priority 5.
-  \item \textbf{\texttt{proc.c}}:
-    \begin{itemize}
-      \item \textbf{Priority Queue and Scheduling}: The \texttt{scheduler()} function uses a priority queue (array of linked lists for priorities 0–10). Processes are scheduled from the highest-priority queue, with a FIFO queue at priority 5 for I/O-bound processes (PIDs > 100).
-      \item \textbf{Dynamic Adjustment}: The \texttt{update\_priorities} function forces processes with PIDs > 100 to priority 5 and uses aging to reduce priority by 1 every 50 ticks of waiting, preventing starvation. Processes (except PID 1) are terminated after 10,000 ticks.
-      \item \textbf{Context Switch Tracking}: A global \texttt{context\_switches} counter is incremented in \texttt{scheduler()} during \texttt{swtch}.
-      \item \textbf{Scheduling Log}: A \texttt{sched\_log} function logs tick, PID, priority, and context switch count.
-    \end{itemize}
-  \item \textbf{\texttt{sysproc.c}}: Added \texttt{sys\_setpriority} and \texttt{sys\_getcontextswitches} system calls, ensuring thread safety with \texttt{ptable.lock}.
-  \item \textbf{\texttt{trap.c}}: Modified \texttt{trap()} to enable preemption on timer interrupts, yielding if a higher-priority process is runnable, with optimization via caching the minimum runnable priority.
-  \item \textbf{\texttt{timingtests.c}}: Enhanced to measure runtime with \texttt{uptime()} and context switches. Test 2 performs 200 switches, Test 4 uses pipes for accurate timing, and a \texttt{sleep(5)} delay ensures test independence.
+    \item \textbf{\texttt{proc.h}}: Extended the \texttt{proc} structure with fields like \texttt{priority}, \texttt{wait\_ticks}, \texttt{cpu\_time}, and others to support priority scheduling and performance tracking.
+    \item \textbf{\texttt{proc.c}}: Modified \texttt{scheduler()} to use a priority queue (array of linked lists for each priority level), implemented \texttt{update\_priorities} for aging (reduces priority by 1 every 50 ticks), and added a short-lived FIFO queue for I/O-bound processes at priority 5. Added \texttt{context\_switches} counter and \texttt{sched\_log} for performance analysis.
+    \item \textbf{\texttt{sysproc.c}}: Implemented \texttt{sys\_setpriority} and \texttt{sys\_getcontextswitches} system calls for priority adjustment and performance monitoring.
+    \item \textbf{\texttt{trap.c}}: Enabled preemption by modifying \texttt{trap()} to check for higher-priority runnable processes on timer interrupts, invoking \texttt{yield()} if necessary.
+    \item \textbf{\texttt{timingtests.c}}: Developed a test suite with seven workloads (CPU-intensive, I/O-bound, mixed, etc.), measuring runtime and context switches, with a \texttt{sleep(5)} delay between runs for test independence.
 \end{itemize}
 
-\subsection{Testing and Validation}
-\label{subsec:priority-testing}
+\subsection{Performance Evaluation}
+\label{subsec:priority-performance}
 
-A baseline was established using xv6’s round-robin scheduler under \texttt{CPUS := 1}, augmented with a \texttt{context\_switches} counter and \texttt{sys\_getcontextswitches} system call. The \texttt{timingtests.c} utility evaluated performance across seven workloads, each run 10 times over two runs (1 tick = 10ms):
+The priority scheduler was evaluated using \texttt{timingtests.c} across seven workloads, compared against the round-robin baseline (\texttt{CPUS := 1}):
 
-\begin{enumerate}[label=\arabic*.]
-  \item \textbf{CPU-intensive}: 10 processes, 20M iterations each, concurrent.
-  \item \textbf{Context-switching overhead}: 200 sequential fork-and-exit operations.
-  \item \textbf{I/O-bound}: 100 processes, 100ms sleep each, 50 concurrent.
-  \item \textbf{Mixed workload}: 5 CPU-intensive (50M iterations, priority 0) and 5 I/O-bound (500ms sleep, priority 10), concurrent.
-  \item \textbf{Process creation}: 50 sequential fork operations, children exit immediately.
-  \item \textbf{Short-duration tasks}: 200 processes, 10,000 iterations each, 50 concurrent.
-  \item \textbf{Starvation evaluation}: 1 lightweight process (50K iterations, priority 0) vs. 5 heavyweight processes (20M iterations each, priority 5), concurrent.
-\end{enumerate}
-
-\textbf{Round-Robin Results:}
-\begin{lstlisting}
+\begin{itemize}
+    \item \textbf{Round-Robin Baseline Output:}
+    \begin{lstlisting}
 Test 1: CPU-heavy: Avg 87 ticks (Range: 83-100), Avg Context Switches: 101.95
 Test 2: Switch overhead: Avg 70.5 ticks (Range: 67-83)
 Test 3: I/O-bound: Avg 52.5 ticks (Range: 50-61)
@@ -147,10 +111,10 @@ Test 4: Mixed load: Avg 50 ticks (Range: 50-52)
 Test 5: Process creation: Avg 17 ticks (Range: 17-18)
 Test 6: Short tasks: Avg 70 ticks (Range: 68-73)
 Test 7: Starvation check: Avg 43.5 ticks (Range: 42-46)
-\end{lstlisting}
+    \end{lstlisting}
 
-\textbf{Priority Scheduler Results:}
-\begin{lstlisting}
+    \item \textbf{Priority Scheduler Output:}
+    \begin{lstlisting}
 Test 1: CPU-heavy: Avg 14 ticks (Range: 13-16), Avg Context Switches: 19-21
 Test 2: Switch overhead: Avg 68 ticks (Range: 68-69)
 Test 3: I/O-bound: Avg 25 ticks (Range: 25-27), Avg Context Switches: 557-558
@@ -158,304 +122,368 @@ Test 4: Mixed load: Avg 50 ticks (Range: 50-50)
 Test 5: Process creation: Avg 17 ticks (Range: 17-20)
 Test 6: Short tasks: Avg 70 ticks (Range: 69-71)
 Test 7: Starvation check: Avg 12 ticks (Range: 11-13)
-\end{lstlisting}
+    \end{lstlisting}
 
-\subsection{Final Results and Comparison}
-\label{subsec:priority-results}
-
-\begin{itemize}
-  \item \textbf{Test 1 (CPU-heavy)}: The priority scheduler achieves 14 ticks (range: 13–16 ticks, 19–21 context switches) vs. round-robin’s 87 ticks (range: 83–100 ticks, 101.95 context switches). The priority queue minimizes overhead, and preemption ensures fair CPU sharing at priority 5.
-  \item \textbf{Test 2 (Switch overhead)}: The priority scheduler averages 68 ticks (range: 68–69 ticks) vs. round-robin’s 70.5 ticks (range: 67–83 ticks), with better consistency due to the FIFO queue at priority 5 and test isolation via \texttt{sleep(5)}.
-  \item \textbf{Test 3 (I/O-bound)}: The priority scheduler averages 25 ticks (range: 25–27 ticks, 557–558 context switches) vs. round-robin’s 52.5 ticks (range: 50–61 ticks), prioritizing half the processes at priority 0. High context switches indicate excessive preemption by PID 3.
-  \item \textbf{Test 4 (Mixed load)}: Both schedulers average 50 ticks, but the priority scheduler prioritizes CPU-bound processes (priority 0) while aging prevents starvation of I/O-bound processes (priority 10).
-  \item \textbf{Test 5 (Process creation)}: Both schedulers average 17 ticks, with the priority scheduler showing slight variability (range: 17–20 ticks) due to queue overhead.
-  \item \textbf{Test 6 (Short tasks)}: Both schedulers average 70 ticks, with the priority scheduler showing tighter consistency (range: 69–71 ticks) due to test isolation.
-  \item \textbf{Test 7 (Starvation check)}: The priority scheduler averages 12 ticks (range: 11–13 ticks) vs. round-robin’s 43.5 ticks (range: 42–46 ticks), prioritizing the lightweight process (priority 0) effectively.
+    \item \textbf{Key Results:}
+    \begin{itemize}
+        \item \textbf{Test 1 (CPU-heavy)}: Reduced runtime from 87 to 14 ticks, with fewer context switches (19–21 vs. 101.95), due to efficient priority queue scheduling.
+        \item \textbf{Test 3 (I/O-bound)}: Improved runtime from 52.5 to 25 ticks by prioritizing half the processes at priority 0, though high context switches (557–558) indicate a need for optimization.
+        \item \textbf{Test 7 (Starvation check)}: Achieved a 72\% runtime reduction (12 vs. 43.5 ticks), demonstrating effective prioritization of a lightweight process (priority 0) over heavyweight ones (priority 5).
+        \item \textbf{Tests 4, 5, 6}: Matched the round-robin baseline, showing balanced handling of mixed and uniform-priority workloads.
+    \end{itemize}
 \end{itemize}
 
-The priority scheduler outperforms round-robin in Tests 1, 2, 3, and 7, matches it in Tests 4, 5, and 6, and demonstrates effective prioritization with fairness via aging. High context switches in Test 3 are a noted limitation.
+\subsection{Future Enhancements}
+\label{subsec:priority-future}
 
-% Lottery Scheduler Section
+\begin{itemize}
+    \item Reduce context switches in Test 3 (557–558 to ~100–150) by enforcing a minimum time slice for short-lived processes.
+    \item Evaluate performance in a multi-core environment (\texttt{CPUS := 2}) to assess scalability.
+\end{itemize}
+
 \section{Lottery Scheduler Implementation}
 \label{sec:lottery-scheduler}
 
-\subsection{Design Overview}
-\label{subsec:lottery-design}
-
-The lottery scheduler introduces probabilistic scheduling where processes are assigned tickets, and the probability of scheduling is proportional to ticket counts (e.g., tickets 30, 20, 10 yield expected proportions of 50\%, 33\%, 16.67\%). The design includes:
-
-\begin{itemize}
-  \item \textbf{Ticket-Based Scheduling}: Processes are selected randomly based on ticket proportions.
-  \item \textbf{Random Number Generation}: An Xorshift-based generator ensures high-quality randomness.
-  \item \textbf{Shuffling}: Fisher-Yates shuffling reduces ordering bias in process selection.
-  \item \textbf{Scheduling Events Tracking}: A counter tracks scheduling events for performance analysis.
-\end{itemize}
-
-\subsection{Implementation Details}
+\subsection{Implementation Overview}
 \label{subsec:lottery-implementation}
 
-The lottery scheduler was implemented under \texttt{CPUS := 1} to compare with the round-robin scheduler. Key modifications include:
+The lottery scheduler introduces probabilistic scheduling, where processes are assigned tickets, and scheduling probability is proportional to ticket counts. The implementation was tested under \texttt{CPUS := 1}. Key modifications include:
 
 \begin{itemize}
-  \item \textbf{\texttt{proc.c}}:
-    \begin{itemize}
-      \item \textbf{Lottery Scheduling}: The \texttt{scheduler()} collects runnable processes into \texttt{runnable\_procs}, computes total tickets, selects a winner via random number, and shuffles the array using Fisher-Yates to reduce bias.
-      \item \textbf{Random Number Generator}: Implements \texttt{srand}, \texttt{rand}, and \texttt{rand\_range} using Xorshift, seeded with \texttt{ticks}, CPU ID, and other variables to ensure fairness.
-      \item \textbf{Scheduling Log}: The \texttt{ticks\_scheduled} field tracks scheduling events.
-      \item \textbf{Process Management}: \texttt{fork()}, \texttt{allocproc()}, and \texttt{userinit()} initialize \texttt{tickets} (default 1) and \texttt{ticks\_scheduled}.
-    \end{itemize}
-  \item \textbf{\texttt{lotterytest.c}}:
-    \begin{itemize}
-      \item \textbf{Test Functions}: \texttt{run\_workload\_test} (Tests 1, 3) forks 3 processes with specified tickets, performing iterations and yielding periodically. \texttt{run\_switch\_test} (Test 2) forks 50 processes in C-A-B order.
-      \item \textbf{Average Calculation}: \texttt{print\_average\_results} computes average proportions over 5 runs.
-      \item \textbf{Test Independence}: A \texttt{sleep(5)} delay ensures system stabilization between runs.
-    \end{itemize}
-  \item \textbf{Optimizations}: Increased iterations (e.g., 500M in Test 1), reduced yield intervals (5,000 iterations), and added shuffling to reduce variability (e.g., Process A in Test 1: 45\% to 55\%).
+    \item \textbf{\texttt{proc.c}}: Modified \texttt{scheduler()} to collect runnable processes, compute total tickets, and select a winner randomly using an Xorshift-based generator. Added Fisher-Yates shuffling to reduce ordering bias. Extended \texttt{proc} structure with \texttt{tickets} and \texttt{ticks\_scheduled}.
+    \item \textbf{\texttt{lotterytest.c}}: Developed a test suite with three workloads (CPU-intensive, high-contention, starvation check), measuring scheduling proportions and runtime, with a \texttt{sleep(5)} delay between runs.
+    \item \textbf{System Calls}: Added \texttt{settickets} to set ticket counts and another to retrieve scheduling counts.
 \end{itemize}
 
-\subsection{Testing and Validation}
-\label{subsec:lottery-testing}
+\subsection{Performance Evaluation}
+\label{subsec:lottery-performance}
 
-The round-robin baseline was established under \texttt{CPUS := 1}, with \texttt{ticks\_scheduled} added to track scheduling events. The \texttt{lotterytest.c} utility evaluated three workloads over 5 runs (1 tick = 10ms):
+The lottery scheduler was evaluated using \texttt{lotterytest.c} across three workloads, compared against the round-robin baseline (\texttt{CPUS := 1}):
 
-\begin{enumerate}[label=\arabic*.]
-  \item \textbf{CPU-intensive}: 3 processes, 500M iterations each, tickets 30, 20, 10 (expected: 50\%, 33\%, 16.67\%).
-  \item \textbf{Context-switching overhead}: 50 processes (17 with 30 tickets, 17 with 20 tickets, 16 with 10 tickets, expected: 50\%, 33\%, 16.67\%), 100M iterations each, forked in C-A-B order.
-  \item \textbf{Starvation check}: 3 processes, 10M iterations each, tickets 50, 10, 1 (expected: 81.97\%, 16.39\%, 1.64\%).
-\end{enumerate}
-
-\textbf{Round-Robin Results:}
-\begin{lstlisting}
+\begin{itemize}
+    \item \textbf{Round-Robin Baseline Output:}
+    \begin{lstlisting}
 Test 1: CPU-heavy: Avg 87 ticks (Range: 83-100), Schedules: A=33%, B=33%, C=33%
 Test 2: Switch overhead: Avg 70.5 ticks (Range: 67-83), Schedules: A=33%, B=33%, C=33%
-\end{lstlisting}
+    \end{lstlisting}
 
-\textbf{Lottery Scheduler Results:}
-\begin{lstlisting}
+    \item \textbf{Lottery Scheduler Output:}
+    \begin{lstlisting}
 Test 1: CPU-heavy: Avg 1810.6 ticks (Range: 1787-1851), Schedules: A=51.1%, B=31.8%, C=16.9%
 Test 2: Switch overhead: Avg not measured, Schedules: A=50.5%, B=32.2%, C=17.2%
 Test 3: Starvation check: Avg 42 ticks (Range: 42-42), Schedules: A=79.3%, B=18.6%, C=1.9%
-\end{lstlisting}
+    \end{lstlisting}
 
-\subsection{Final Results and Comparison}
-\label{subsec:lottery-results}
-
-\begin{itemize}
-  \item \textbf{Test 1 (CPU-heavy)}: The lottery scheduler achieves proportions of A: 51.1\%, B: 31.8\%, C: 16.9\% (expected: 50\%, 33\%, 16.67\%) with 1810.6 ticks (range: 1787–1851 ticks), vs. round-robin’s equal proportions (33\% each) and 87 ticks. Deviations are within ~2–3\%, with ~753 scheduling events per run reducing variability.
-  \item \textbf{Test 2 (Switch overhead)}: Proportions are A: 50.5\%, B: 32.2\%, C: 17.2\% (expected: 50\%, 33\%, 16.67\%) vs. round-robin’s 33\% each. Deviations are within ~2–3\%, with ~13211 events per run ensuring low variability.
-  \item \textbf{Test 3 (Starvation check)}: Proportions are A: 79.3\%, B: 18.6\%, C: 1.9\% (expected: 81.97\%, 16.39\%, 1.64\%) with 42 ticks, vs. round-robin’s 33\% each and 87 ticks. Process C (1 ticket) is scheduled consistently, preventing starvation.
-\end{itemize}
-
-The lottery scheduler achieves proportional fairness, outperforming round-robin in ticket-based scheduling, though runtime overhead (e.g., Test 1: 1810.6 ticks) is a noted area for optimization.
-
-% Shared Memory and Semaphores Section
-\section{Shared Memory and Semaphore Implementation}
-\label{sec:shared-memory-semaphores}
-
-\subsection{Shared Memory Implementation}
-\label{subsec:shared-memory-implementation}
-
-\subsubsection{Design Overview}
-\label{subsubsec:shared-memory-design}
-
-The shared memory system enables processes to create, access, and manage shared memory regions identified by unique string identifiers, with features including named regions, multiple mappings, inheritance across \texttt{fork}, and reference counting for automatic deallocation.
-
-\begin{itemize}
-  \item \textbf{Data Structures}:
+    \item \textbf{Key Results:}
     \begin{itemize}
-      \item \texttt{shmtable}: A global array of \texttt{NSHM} (10) \texttt{shm} structures (\texttt{name}, \texttt{in\_use}, \texttt{phys\_addr}, \texttt{size}, \texttt{ref\_count}, \texttt{lock}).
-      \item Per-process mappings in \texttt{proc}: \texttt{shm\_mappings[MAX\_SHM\_MAPPINGS]} (4), \texttt{shm\_objects}, \texttt{shm\_count}.
+        \item \textbf{Test 1 (CPU-heavy)}: Achieved proportions of 51.1\%, 31.8\%, 16.9\% (expected: 50\%, 33\%, 16.67\%), with deviations within ~2–3\%, compared to round-robin’s equal 33\% each. Higher runtime (1810.6 ticks) due to increased iterations (500M).
+        \item \textbf{Test 2 (Switch overhead)}: Proportions of 50.5\%, 32.2\%, 17.2\% (expected: 50\%, 33\%, 16.67\%), with low variability due to ~13211 scheduling events per run.
+        \item \textbf{Test 3 (Starvation check)}: Proportions of 79.3\%, 18.6\%, 1.9\% (expected: 81.97\%, 16.39\%, 1.64\%), preventing starvation of the low-ticket process.
     \end{itemize}
-  \item \textbf{System Calls}: \texttt{shm\_open(const char *name, int size)} and \texttt{shm\_close(int addr)}.
 \end{itemize}
 
-\subsubsection{Implementation Details}
-\label{subsubsec:shared-memory-implementation-details}
+\subsection{Future Enhancements}
+\label{subsec:lottery-future}
 
-Modifications include:
 \begin{itemize}
-  \item \textbf{\texttt{proc.h}, \texttt{proc.c}}: Define \texttt{shm} structure, implement \texttt{sys\_shm\_open} and \texttt{sys\_shm\_close}, and modify \texttt{fork} and \texttt{exit}.
-  \item \textbf{\texttt{syscall.h}, \texttt{syscall.c}, \texttt{usys.S}, \texttt{user.h}}: Add system call support.
+    \item Reduce variability in Test 1 (e.g., Process A: 45\% to 55\%) by increasing scheduling events or introducing hybrid time-slicing.
+    \item Optimize runtime overhead in Test 1 (1810.6 ticks) by improving the random number generator.
+    \item Evaluate multi-core performance (\texttt{CPUS := 2}).
 \end{itemize}
 
-\texttt{sys\_shm\_open} allocates memory, maps it at \texttt{0x60000000} (incremented by \texttt{PGSIZE}), and manages references. \texttt{sys\_shm\_close} unmaps regions and deallocates memory when \texttt{ref\_count} reaches zero.
+\section{Shared Memory and Semaphore Implementation}
+\label{sec:shared-memory-semaphore}
 
-\subsubsection{Testing and Validation}
-\label{subsubsec:shared-memory-testing}
+\subsection{Implementation Overview}
+\label{subsec:shared-implementation}
 
-The \texttt{shmtest.c} program validated functionality:
+The shared memory and semaphore mechanisms enable efficient IPC and synchronization in xv6. Key modifications include:
+
 \begin{itemize}
-  \item \textbf{Basic Test}: Parent and child share \texttt{/shm1}, with the child updating the value to 42.
-  \item \textbf{Extended Tests}: Multiple regions (\texttt{/shm1}, \texttt{/shm2}), maximum mappings (4), reusing names (\texttt{/shm\_reuse}), and invalid inputs.
+    \item \textbf{Shared Memory}:
+    \begin{itemize}
+        \item \textbf{\texttt{proc.h}}: Added \texttt{shm} structure for a global \texttt{shmtable} and extended \texttt{proc} with \texttt{shm\_mappings}, \texttt{shm\_objects}, and \texttt{shm\_count}.
+        \item \textbf{\texttt{proc.c}}: Implemented \texttt{sys\_shm\_open} to create/access shared memory regions and \texttt{sys\_shm\_close} to unmap them. Modified \texttt{fork} and \texttt{exit} to handle inheritance and cleanup.
+    \end{itemize}
+    \item \textbf{Semaphores}:
+    \begin{itemize}
+        \item \textbf{\texttt{proc.h}}: Added \texttt{sem} structure for a global \texttt{semtable} and extended \texttt{proc} with \texttt{sem\_ids} and \texttt{sem\_count}.
+        \item \textbf{\texttt{proc.c}}: Implemented \texttt{sys\_sem\_init}, \texttt{sys\_sem\_wait}, and \texttt{sys\_sem\_post} for semaphore operations. Modified \texttt{fork} and \texttt{exit} for inheritance and cleanup.
+    \end{itemize}
+    \item \textbf{Testing}: Developed \texttt{shmtest.c} to validate shared memory and \texttt{prodcons.c} for a producer-consumer application using semaphores.
 \end{itemize}
 
-\textbf{Output:}
+\subsection{Performance Evaluation}
+\label{subsec:shared-performance}
+
+The shared memory system was validated using \texttt{shmtest.c}, confirming correct operation across scenarios like multiple regions, maximum mappings, and invalid inputs:
+
 \begin{lstlisting}
 Test 1: Opening two shared memory regions
 Parent: Set /shm1 to 100, /shm2 to 200
 Child: /shm1 = 100, /shm2 = 200
 Child: Set /shm1 to 101, /shm2 to 201
 Parent: /shm1 = 101, /shm2 = 201
-[Kernel Debug] Shared memory /shm1 freed
-[Kernel Debug] Shared memory /shm2 freed
 
 Test 2: Maximum shared memory mappings
 Opened /shm_max0 at address 0x60000000
-Opened /shm_max1 at address 0x60001000
-Opened /shm_max2 at address 0x60002000
-Opened /shm_max3 at address 0x60003000
-shm_open failed for /shm_max4 (expected for i=4)
-[Kernel Debug] Shared memory /shm_max0 freed
-[Kernel Debug] Shared memory /shm_max1 freed
-[Kernel Debug] Shared memory /shm_max2 freed
-[Kernel Debug] Shared memory /shm_max3 freed
+[...]
 
 Test 3: Reusing shared memory names
 Child: /shm_reuse = 300
-Child: Set /shm_reuse to 301
-Parent: /shm_reuse = 301
-[Kernel Debug] Shared memory /shm_reuse freed
-
-Test 4: Invalid inputs
-shm_open with negative size failed (expected)
-shm_open with zero size failed (expected)
-shm_open with size > PGSIZE failed (expected)
-shm_close with invalid address failed (expected)
-
-All tests completed
+[...]
 \end{lstlisting}
 
-\subsubsection{Challenges and Solutions}
-\label{subsubsec:shared-memory-challenges}
+The semaphore implementation was tested using \texttt{prodcons.c} under standard (buffer size 5, 10 items) and stress (buffer size 2, 20 items) conditions:
 
-Challenges included implicit declarations (\texttt{mappages}), undefined functions (\texttt{strcmp}), user-space errors, multiple definitions, page faults in \texttt{fork}, and missing \texttt{snprintf}, all resolved through appropriate kernel modifications and manual string handling.
-
-\subsection{Semaphore Implementation}
-\label{subsec:semaphore-implementation}
-
-\subsubsection{Design Overview}
-\label{subsubsec:semaphore-design}
-
-The semaphore system provides synchronization with counting semaphores, blocking/waking, inheritance across \texttt{fork}, automatic cleanup, and error handling.
-
-\begin{itemize}
-  \item \textbf{Data Structures}:
-    \begin{itemize}
-      \item \texttt{semtable}: Array of \texttt{NSEM} (10) \texttt{sem} structures (\texttt{in\_use}, \texttt{value}, \texttt{lock}, \texttt{queue} with \texttt{NPROC} (64) entries).
-      \item Per-process in \texttt{proc}: \texttt{sem\_ids[MAX\_SEM]} (4), \texttt{sem\_count}.
-    \end{itemize}
-  \item \textbf{System Calls}: \texttt{sem\_init(int value)}, \texttt{sem\_wait(int sem\_id)}, \texttt{sem\_post(int sem\_id)}.
-\end{itemize}
-
-\subsubsection{Implementation Details}
-\label{subsubsec:semaphore-implementation-details}
-
-Modifications include:
-\begin{itemize}
-  \item \textbf{\texttt{proc.h}, \texttt{proc.c}}: Define \texttt{sem} structure, implement \texttt{sys\_sem\_init}, \texttt{sys\_sem\_wait}, \texttt{sys\_sem\_post}, and modify \texttt{fork} and \texttt{exit}.
-  \item \textbf{\texttt{syscall.h}, \texttt{syscall.c}, \texttt{usys.S}, \texttt{user.h}}: Add system call support.
-\end{itemize}
-
-\texttt{sys\_sem\_init} validates inputs, allocates a semaphore, and initializes the queue. \texttt{sys\_sem\_wait} decrements \texttt{value}, blocking if negative, and \texttt{sys\_sem\_post} increments \texttt{value}, waking a process if waiting.
-
-\subsubsection{Testing and Validation}
-\label{subsubsec:semaphore-testing}
-
-The \texttt{prodcons.c} program tested semaphores using a circular buffer with semaphores \texttt{empty}, \texttt{full}, and \texttt{print\_sem}:
-
-\begin{itemize}
-  \item \textbf{Standard Test (Buffer Size 5, 10 Items):}
-    \begin{lstlisting}
+\begin{lstlisting}
 Producer: produced 0 at index 0
 Consumer: consumed 0 from index 0
-Producer: produced 1 at index 1
-Consumer: consumed 1 from index 1
-Producer: produced 2 at index 2
-Consumer: consumed 2 from index 2
-Producer: produced 3 at index 3
-Consumer: consumed 3 from index 3
-Producer: produced 4 at index 4
-Consumer: consumed 4 from index 4
-Producer: produced 5 at index 0
-Consumer: consumed 5 from index 0
-Producer: produced 6 at index 1
-Consumer: consumed 6 from index 1
-Producer: produced 7 at index 2
-Consumer: consumed 7 from index 2
-Producer: produced 8 at index 3
-Consumer: consumed 8 from index 3
-Producer: produced 9 at index 4
-Consumer: consumed 9 from index 4
-[Kernel Debug] Semaphore 0 freed
-[Kernel Debug] Semaphore 1 freed
-[Kernel Debug] Semaphore 2 freed
-[Kernel Debug] Shared memory /buffer freed
-    \end{lstlisting}
-  \item \textbf{Stress Test (Buffer Size 2, 20 Items):}
-    \begin{lstlisting}
-Producer: produced 0 at index 0
-Consumer: consumed 0 from index 0
-Producer: produced 1 at index 1
-Consumer: consumed 1 from index 1
-Producer: produced 2 at index 0
-Consumer: consumed 2 from index 0
 [...]
 Producer: produced 19 at index 1
 Consumer: consumed 19 from index 1
-[Kernel Debug] Semaphore 0 freed
-[Kernel Debug] Semaphore 1 freed
-[Kernel Debug] Semaphore 2 freed
-[Kernel Debug] Shared memory /buffer freed
-    \end{lstlisting}
-  \item \textbf{Error Handling Test (Invalid Semaphore ID):}
-    \begin{lstlisting}
-prodcons: invalid semaphore ID -1, exiting
-    \end{lstlisting}
+\end{lstlisting}
+
+The tests confirmed correct synchronization, with no deadlocks or race conditions, even under high contention.
+
+\subsection{Future Enhancements}
+\label{subsec:shared-future}
+
+\begin{itemize}
+    \item Stress test with multiple producer-consumer pairs.
+    \item Implement \texttt{sem\_destroy} for explicit semaphore cleanup.
+    \item Add advanced synchronization primitives like condition variables.
 \end{itemize}
 
-The tests confirm synchronized access, robustness under contention, and proper error handling.
-
-\subsubsection{Challenges and Solutions}
-\label{subsubsec:semaphore-challenges}
-
-Challenges included linker errors, kernel panics due to lock conflicts, interleaved output, and unbalanced execution, resolved through implementation fixes, lock restructuring, adding \texttt{print\_sem}, and introducing a producer delay.
-
-% Discussion
 \section{Discussion}
 \label{sec:discussion}
 
-The three implementations collectively enhance xv6’s capabilities:
+The priority scheduler excels in scenarios requiring strict prioritization (e.g., Test 7: 12 vs. 43.5 ticks), but its high context switches in I/O-bound workloads (Test 3: 557–558) indicate a need for optimization. The lottery scheduler achieves proportional fairness across diverse workloads, with deviations within ~2–3\%, though its runtime overhead (Test 1: 1810.6 ticks) suggests opportunities for efficiency improvements. The shared memory and semaphore mechanisms enable robust IPC and synchronization, handling both standard and stress conditions effectively, as seen in the producer-consumer application.
+
+Comparing the schedulers, the priority scheduler is ideal for workloads with clear priority hierarchies, while the lottery scheduler offers flexibility for proportional scheduling. The shared memory and semaphore implementations complement both by enabling concurrent programming, a critical aspect of modern operating systems. Together, these enhancements make xv6 a more comprehensive platform for studying operating system concepts.
+
+\section{Contributions}
+\label{sec:contributions}
+
+This thesis makes the following contributions to the xv6 operating system and the field of operating systems education:
 
 \begin{itemize}
-  \item \textbf{Priority Scheduler}: Excels in prioritizing critical tasks (e.g., Test 7: 12 ticks vs. 43.5 ticks), but high context switches in Test 3 (557–558) suggest preemption overhead.
-  \item \textbf{Lottery Scheduler}: Achieves proportional fairness (e.g., Test 1 deviations within ~2–3\%), though runtime overhead (1810.6 ticks in Test 1) indicates optimization potential.
-  \item \textbf{Shared Memory and Semaphores}: Enables efficient IPC and synchronization, with robust performance under stress (e.g., buffer size 2, 20 items).
+    \item \textbf{Priority Scheduler}: Introduces a priority-based scheduling mechanism to xv6, enabling efficient execution of critical tasks. The implementation includes dynamic priority adjustments via aging and preemption, achieving significant performance improvements (e.g., 72\% runtime reduction in starvation tests) over the round-robin scheduler, enhancing xv6’s utility for studying scheduling algorithms.
+    \item \textbf{Lottery Scheduler}: Implements a probabilistic lottery scheduler, providing proportional fairness based on ticket counts (deviations within ~2–3\% of expected proportions). This addition offers students a practical exploration of probabilistic scheduling, a flexible alternative to traditional methods.
+    \item \textbf{Shared Memory and Semaphores}: Adds efficient IPC and synchronization mechanisms to xv6, enabling concurrent programming scenarios like the producer-consumer problem. The robust implementation, validated under stress conditions, fills a gap in xv6’s original design, making it a more comprehensive platform for learning IPC concepts.
+    \item \textbf{Educational Value}: Provides a comprehensive set of tools and test programs (\texttt{timingtests.c}, \texttt{lotterytest.c}, \texttt{shmtest.c}, \texttt{prodcons.c}) for students to experiment with scheduling and IPC, supported by detailed performance analyses and comparisons with the baseline round-robin scheduler.
 \end{itemize}
 
-Challenges across implementations included kernel-level modifications (e.g., system call integration, lock management) and test design (e.g., ensuring sufficient scheduling events, test independence). The combined impact of these enhancements makes xv6 a more versatile platform for teaching and experimenting with operating system concepts, supporting advanced scheduling and IPC scenarios.
+These enhancements collectively transform xv6 into a more versatile platform, enabling students to explore advanced operating system concepts through practical implementation and evaluation.
 
-% Conclusion
 \section{Conclusion}
 \label{sec:conclusion}
 
 This thesis successfully enhances the xv6 operating system through three implementations: a priority scheduler, a lottery scheduler, and shared memory with semaphores. The priority scheduler ensures efficient execution of critical tasks, outperforming the round-robin scheduler in key scenarios (e.g., 12 ticks vs. 43.5 ticks in starvation tests). The lottery scheduler achieves proportional fairness, with scheduling proportions within ~2–3\% of expected values, offering a flexible alternative to round-robin scheduling. The shared memory and semaphore mechanisms enable robust IPC and synchronization, validated through a producer-consumer application under diverse conditions.
 
-These enhancements collectively improve xv6’s functionality, making it a more comprehensive educational tool. Future work includes optimizing the priority scheduler’s context switches, reducing the lottery scheduler’s runtime overhead, and extending the shared memory system with advanced synchronization primitives like condition variables. Additionally, evaluating all implementations in a multi-core environment (\texttt{CPUS := 2}) would provide insights into their scalability and performance under parallelism.
+These enhancements collectively improve xv6’s functionality, making it a more comprehensive educational tool. They enable students to explore advanced scheduling techniques (priority and lottery) and IPC concepts (shared memory and semaphores), supported by practical implementations and detailed performance evaluations. The work also contributes to the broader field by providing a well-documented framework for studying operating system design, with test programs and analyses that can be extended in future research.
 
-% References
+Future work includes optimizing the priority scheduler’s context switches, reducing the lottery scheduler’s runtime overhead, and extending the shared memory system with advanced synchronization primitives like condition variables. Additionally, evaluating all implementations in a multi-core environment (\texttt{CPUS := 2}) would provide insights into their scalability and performance under parallelism, further enhancing xv6’s utility as a teaching platform.
+
+\section{Repositories}
+\label{sec:repositories}
+
+The complete implementations for each component are available in the following repositories:
+\begin{itemize}
+    \item Priority Scheduler: \url{https://github.com/Orestouio/Xv-6-Project}
+    \item Lottery Scheduler: \url{https://github.com/Orestouio/Xv6_LotteryExtension}
+    \item Shared Memory and Semaphores: \url{https://github.com/Orestouio/Xv6_SharedMemorySemaphores}
+\end{itemize}
+
+\section*{Acknowledgments}
+I would like to thank my academic supervisors for their guidance throughout this thesis. Additionally, I thank the open-source community for providing the xv6 operating system as a foundation for this work.
+
+\section*{Appendix}
+\label{sec:appendix}
+
+\subsection*{Priority Scheduler: \texttt{scheduler()} Function}
+\begin{lstlisting}
+// Excerpt from proc.c (priority scheduler)
+void scheduler(void)
+{
+    struct proc *p;
+    struct cpu *c = mycpu();
+    c->proc = 0;
+    for(;;){
+        sti();
+        update_priorities();
+        acquire(&ptable.lock);
+        int min_priority = 11;
+        struct proc *min_p = 0;
+        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+            if(p->state != RUNNABLE)
+                continue;
+            if(p->priority < min_priority){
+                min_priority = p->priority;
+                min_p = p;
+            }
+        }
+        if(min_p){
+            c->proc = min_p;
+            switchuvm(min_p);
+            min_p->state = RUNNING;
+            min_p->cpu_time++;
+            if(min_p->has_run == 0){
+                min_p->first_run_time = ticks;
+                min_p->has_run = 1;
+            }
+            context_switches++;
+            sched_log(ticks, min_p->pid, min_p->priority, context_switches);
+            swtch(&(c->scheduler), min_p->context);
+            switchkvm();
+            c->proc = 0;
+        }
+        release(&ptable.lock);
+    }
+}
+\end{lstlisting}
+
+\subsection*{Lottery Scheduler: \texttt{scheduler()} Function}
+\begin{lstlisting}
+// Excerpt from proc.c (lottery scheduler)
+void scheduler(void)
+{
+    struct proc *p;
+    struct cpu *c = mycpu();
+    struct proc *runnable_procs[NPROC];
+    int runnable_count;
+    int total_tickets;
+    int winner;
+    int current_tickets;
+    static int sched_count = 0;
+    c->proc = 0;
+    for(;;){
+        sti();
+        total_tickets = 0;
+        runnable_count = 0;
+        acquire(&ptable.lock);
+        for(p = ptable; p < &ptable[NPROC]; p++){
+            if(p->state == RUNNABLE){
+                runnable_procs[runnable_count++] = p;
+                total_tickets += p->tickets;
+            }
+        }
+        if(total_tickets == 0){
+            release(&ptable.lock);
+            continue;
+        }
+        for(int i = runnable_count - 1; i > 0; i--){
+            srand(ticks + lapicid() + randstate + i);
+            int j = rand_range(i + 1);
+            struct proc *temp = runnable_procs[i];
+            runnable_procs[i] = runnable_procs[j];
+            runnable_procs[j] = temp;
+        }
+        srand(ticks + lapicid() + randstate + runnable_count + sched_count);
+        winner = rand_range(total_tickets);
+        current_tickets = 0;
+        for(int i = 0; i < runnable_count; i++){
+            p = runnable_procs[i];
+            int effective_tickets = p->tickets;
+            if(winner < effective_tickets + current_tickets){
+                c->proc = p;
+                switchuvm(p);
+                p->state = RUNNING;
+                p->ticks_scheduled++;
+                swtch(&(c->scheduler), p->context);
+                switchkvm();
+                c->proc = 0;
+                break;
+            }
+            current_tickets += effective_tickets;
+        }
+        release(&ptable.lock);
+        sched_count++;
+    }
+}
+\end{lstlisting}
+
+\subsection*{Shared Memory: \texttt{sys\_shm\_open} Function}
+\begin{lstlisting}
+// Excerpt from proc.c (shared memory)
+int sys_shm_open(void)
+{
+    char *name;
+    int size;
+    struct proc *curproc = myproc();
+    void *va = (void *)(0x60000000 + curproc->shm_count * PGSIZE);
+    if(argstr(0, &name) < 0 || argint(1, &size) < 0)
+        return -1;
+    if(size <= 0 || size > PGSIZE)
+        return -1;
+    acquire(&ptable.lock);
+    int shm_idx = -1;
+    for(int i = 0; i < NSHM; i++){
+        if(shmtable[i].in_use && strncmp(shmtable[i].name, name, sizeof(shmtable[i].name)) == 0){
+            shm_idx = i;
+            break;
+        }
+    }
+    if(shm_idx == -1){
+        for(int i = 0; i < NSHM; i++){
+            if(!shmtable[i].in_use){
+                shm_idx = i;
+                break;
+            }
+        }
+        if(shm_idx == -1){
+            release(&ptable.lock);
+            return -1;
+        }
+        acquire(&shmtable[shm_idx].lock);
+        shmtable[shm_idx].in_use = 1;
+        strncpy(shmtable[shm_idx].name, name, sizeof(shmtable[shm_idx].name) - 1);
+        shmtable[shm_idx].name[sizeof(shmtable[shm_idx].name) - 1] = '\0';
+        shmtable[shm_idx].size = size;
+        shmtable[shm_idx].ref_count = 0;
+        shmtable[shm_idx].phys_addr = kalloc();
+        if(shmtable[shm_idx].phys_addr == 0){
+            shmtable[shm_idx].in_use = 0;
+            release(&shmtable[shm_idx].lock);
+            release(&ptable.lock);
+            return -1;
+        }
+        memset(shmtable[shm_idx].phys_addr, 0, PGSIZE);
+        release(&shmtable[shm_idx].lock);
+    }
+    if(curproc->shm_count >= MAX_SHM_MAPPINGS){
+        release(&ptable.lock);
+        return -1;
+    }
+    acquire(&shmtable[shm_idx].lock);
+    if(mappages(curproc->pgdir, va, PGSIZE, V2P(shmtable[shm_idx].phys_addr), PTE_W | PTE_U) < 0){
+        if(shmtable[shm_idx].ref_count == 0){
+            kfree(shmtable[shm_idx].phys_addr);
+            shmtable[shm_idx].in_use = 0;
+        }
+        release(&shmtable[shm_idx].lock);
+        release(&ptable.lock);
+        return -1;
+    }
+    curproc->shm_mappings[curproc->shm_count] = va;
+    curproc->shm_objects[curproc->shm_count] = &shmtable[shm_idx];
+    curproc->shm_count++;
+    shmtable[shm_idx].ref_count++;
+    release(&shmtable[shm_idx].lock);
+    release(&ptable.lock);
+    return (int)va;
+}
+\end{lstlisting}
+
 \begin{thebibliography}{9}
 \bibitem{xv6}
 Cox, R., Kaashoek, F., \& Morris, R. (2019). Xv6: A Simple, Unix-like Teaching Operating System. \textit{MIT CSAIL}.
-
 \bibitem{tanenbaum2008modern}
 Tanenbaum, A. S., \& Bos, H. (2008). \textit{Modern Operating Systems}. Pearson Education.
-
 \bibitem{waldspurger1994lottery}
 Waldspurger, C. A., \& Weihl, W. E. (1994). Lottery Scheduling: Flexible Proportional-Share Resource Management. \textit{Proceedings of the 1st USENIX Symposium on Operating Systems Design and Implementation (OSDI)}.
-
 \bibitem{silberschatz2018operating}
 Silberschatz, A., Galvin, P. B., \& Gagne, G. (2018). \textit{Operating System Concepts}. Wiley.
-
 \bibitem{dijkstra1965cooperating}
 Dijkstra, E. W. (1965). Cooperating Sequential Processes. \textit{Programming Languages}, Academic Press.
 \end{thebibliography}
