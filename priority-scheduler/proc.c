@@ -449,8 +449,8 @@ void print_sched_log(void)
 {
   for (int i = 0; i < log_index; i++)
   {
-    cprintf("Tick %d: Switch to PID %d, Priority %d, CS %d\n",
-            sched_log[i].tick, sched_log[i].pid, sched_log[i].priority, sched_log[i].cs_count);
+    /*cprintf("Tick %d: Switch to PID %d, Priority %d, CS %d\n",
+            sched_log[i].tick, sched_log[i].pid, sched_log[i].priority, sched_log[i].cs_count);*/
   }
   log_index = 0;
 }

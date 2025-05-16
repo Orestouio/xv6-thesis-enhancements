@@ -21,7 +21,7 @@ void run_test(int (*test)(), char *name, int runs)
     {
         int ticks = test();
         total += ticks;
-        printf(1, "Run %d: %d ticks\n", i + 1, ticks);
+        // printf(1, "Run %d: %d ticks\n", i + 1, ticks);
     }
     printf(1, "+++ Total: %d ticks, Avg: %d ticks/run\n", total, total / runs);
 }
