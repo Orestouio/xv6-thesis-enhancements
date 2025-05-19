@@ -133,12 +133,12 @@ void run_switch_test(int tickets1, int tickets2, int tickets3, int *sched1_out, 
     int pids[50]; // Array to store PIDs of all 50 processes
     int sched1 = 0, sched2 = 0, sched3 = 0;
     struct pinfo info[64];
-    // int start_time, end_time;
+    int start_time, end_time;
     int i;
 
     printf(1, "%s: Tickets=%d,%d,%d\n", "Test 2: Switch Overhead", tickets1, tickets2, tickets3);
 
-    // start_time = uptime();
+    start_time = uptime();
 
     // First 16 sets: C, A, B
     for (i = 0; i < 16; i++)
@@ -236,8 +236,8 @@ void run_switch_test(int tickets1, int tickets2, int tickets3, int *sched1_out, 
         wait();
     }
 
-    // end_time = uptime();
-    /*printf(1, "Test runtime: %d ticks\n", end_time - start_time);*/
+    end_time = uptime();
+    printf(1, "Test runtime: %d ticks\n", end_time - start_time);
 
     if (getpinfo(info) < 0)
     {

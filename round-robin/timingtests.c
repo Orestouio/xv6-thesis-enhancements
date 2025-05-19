@@ -27,7 +27,7 @@ void run_test(int (*test)(), char *name, int runs)
 int main(int argc, char *argv[])
 {
     printf(1, "Starting round-robin scheduling tests...\n");
-    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 10);
+    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 5);
     run_test(timing_switch_overhead, "Test 2: Switch overhead", 5);
     run_test(timing_io_bound, "Test 3: I/O-bound", 5);
     run_test(timing_mixed_load, "Test 4: Mixed load", 5);
