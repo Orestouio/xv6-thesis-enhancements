@@ -7,6 +7,10 @@
 #include "proc.h"
 #include "spinlock.h"
 
+#ifndef CPUS
+#define CPUS 1
+#endif
+
 struct ptable ptable;
 static struct proc *initproc;
 
@@ -174,11 +178,11 @@ int cpuid()
 struct cpu *mycpu(void)
 {
   int apicid, i;
-
   if (readeflags() & FL_IF)
     panic("mycpu called with interrupts enabled\n");
-
   apicid = lapicid();
+  if (ncpu > CPUS)
+    ncpu = CPUS;
   for (i = 0; i < ncpu; ++i)
   {
     if (cpus[i].apicid == apicid)

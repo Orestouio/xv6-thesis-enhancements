@@ -13,8 +13,6 @@ extern uint vectors[];
 struct spinlock tickslock;
 uint ticks;
 
-// Removed fixed TIME_SLICE definition; we'll compute it dynamically
-
 void tvinit(void)
 {
   int i;
@@ -45,6 +43,11 @@ void trap(struct trapframe *tf)
   switch (tf->trapno)
   {
   case T_IRQ0 + IRQ_TIMER:
+    if (!mycpu()->started)
+    {
+      lapiceoi();
+      break;
+    }
     if (cpuid() == 0)
     {
       acquire(&tickslock);
@@ -57,7 +60,7 @@ void trap(struct trapframe *tf)
       myproc()->cpu_time++;
       acquire(&ptable.lock);
       int has_runnable = 0;
-      int highest_priority = 11; // Higher than any valid priority
+      int highest_priority = 11;
       struct proc *p;
       for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
       {
@@ -65,12 +68,10 @@ void trap(struct trapframe *tf)
         {
           has_runnable = 1;
           if (p->priority < highest_priority)
-            highest_priority = p->priority; // Lower numerical value = higher priority
+            highest_priority = p->priority;
         }
       }
-      // Dynamic time slice based on priority
-      int time_slice = (myproc()->priority <= 2) ? 5 : 2; // Priority 0-2: 5 ticks, 3-10: 2 ticks
-      // Force preemption if time slice is up OR a higher-priority process is runnable
+      int time_slice = (myproc()->priority <= 2) ? 5 : 2;
       if (has_runnable && (myproc()->cpu_time % time_slice == 0 || highest_priority < myproc()->priority))
       {
         release(&ptable.lock);
@@ -85,6 +86,11 @@ void trap(struct trapframe *tf)
     break;
 
   case T_IRQ0 + IRQ_IDE:
+    if (!mycpu()->started)
+    {
+      lapiceoi();
+      break;
+    }
     ideintr();
     lapiceoi();
     break;
@@ -93,23 +99,43 @@ void trap(struct trapframe *tf)
     break;
 
   case T_IRQ0 + IRQ_KBD:
+    if (!mycpu()->started)
+    {
+      lapiceoi();
+      break;
+    }
     kbdintr();
     lapiceoi();
     break;
 
   case T_IRQ0 + IRQ_COM1:
+    if (!mycpu()->started)
+    {
+      lapiceoi();
+      break;
+    }
     uartintr();
     lapiceoi();
     break;
 
   case T_IRQ0 + 7:
   case T_IRQ0 + IRQ_SPURIOUS:
+    if (!mycpu()->started)
+    {
+      lapiceoi();
+      break;
+    }
     cprintf("cpu%d: spurious interrupt at %x:%x\n",
             cpuid(), tf->cs, tf->eip);
     lapiceoi();
     break;
 
   default:
+    if (!mycpu()->started)
+    {
+      cprintf("Unexpected trap %d on uninitialized CPU\n", tf->trapno);
+      break;
+    }
     if (myproc() == 0 || (tf->cs & 3) == 0)
     {
       cprintf("unexpected trap %d from cpu %d eip %x (cr2=0x%x)\n",
