@@ -126,6 +126,7 @@ void print_sched_log(void);
 void swtch(struct context **, struct context *);
 
 // spinlock.c
+extern struct spinlock uartlock;
 void acquire(struct spinlock *);
 void getcallerpcs(void *, uint *);
 int holding(struct spinlock *);

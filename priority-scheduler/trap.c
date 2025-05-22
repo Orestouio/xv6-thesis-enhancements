@@ -48,38 +48,41 @@ void trap(struct trapframe *tf)
       lapiceoi();
       break;
     }
-    if (cpuid() == 0)
-    {
-      acquire(&tickslock);
-      ticks++;
-      wakeup(&ticks);
-      release(&tickslock);
-    }
+    acquire(&tickslock);
+    ticks++;
+    wakeup(&ticks);
+    release(&tickslock);
     if (myproc() && myproc()->state == RUNNING)
     {
       myproc()->cpu_time++;
-      acquire(&ptable.lock);
-      int has_runnable = 0;
-      int highest_priority = 11;
-      struct proc *p;
-      for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      // Only call yield() if ptable.lock is not held
+      if (!holding(&ptable.lock))
       {
-        if (p != myproc() && p->state == RUNNABLE)
+        int has_runnable = 0;
+        int highest_priority = 11;
+        struct proc *p;
+        int i;
+        acquire(&ptable.lock);
+        for (i = 0; i < NPROC; i++)
         {
-          has_runnable = 1;
-          if (p->priority < highest_priority)
-            highest_priority = p->priority;
+          p = ptable.proc[i];
+          if (p && p != myproc() && p->state == RUNNABLE)
+          {
+            has_runnable = 1;
+            if (p->priority < highest_priority)
+              highest_priority = p->priority;
+          }
         }
-      }
-      int time_slice = (myproc()->priority <= 2) ? 5 : 2;
-      if (has_runnable && (myproc()->cpu_time % time_slice == 0 || highest_priority < myproc()->priority))
-      {
-        release(&ptable.lock);
-        yield();
-      }
-      else
-      {
-        release(&ptable.lock);
+        int time_slice = (myproc()->priority <= 2) ? 5 : 2;
+        if (has_runnable && (myproc()->cpu_time % time_slice == 0 || highest_priority < myproc()->priority))
+        {
+          release(&ptable.lock);
+          yield();
+        }
+        else
+        {
+          release(&ptable.lock);
+        }
       }
     }
     lapiceoi();

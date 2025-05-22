@@ -15,6 +15,9 @@
 #include "proc.h"
 #include "x86.h"
 
+// Declare the external uartlock defined in main.c
+extern struct spinlock uartlock;
+
 static void consputc(int);
 
 static int panicked = 0;
@@ -178,6 +181,9 @@ void consputc(int c)
       ;
   }
 
+  // Acquire the uartlock to synchronize access to serial port and VGA
+  acquire(&uartlock);
+
   if (c == BACKSPACE)
   {
     uartputc('\b');
@@ -187,6 +193,8 @@ void consputc(int c)
   else
     uartputc(c);
   cgaputc(c);
+
+  release(&uartlock);
 }
 
 #define INPUT_BUF 128

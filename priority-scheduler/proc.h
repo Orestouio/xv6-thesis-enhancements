@@ -6,6 +6,8 @@
 #include "spinlock.h"
 
 extern int context_switches;
+extern int padding_before[];
+extern int padding_after[];
 
 // Forward declarations for structs defined elsewhere
 struct taskstate; // From mmu.h
@@ -83,8 +85,8 @@ struct proc
 // Process table structure
 struct ptable
 {
-  struct spinlock lock; // Actual spinlock instance, not pointer
-  struct proc proc[NPROC];
+  struct spinlock lock;     // Actual spinlock instance, not pointer
+  struct proc *proc[NPROC]; // Array of pointers to proc structs
 };
 extern struct ptable ptable; // Global process table
 

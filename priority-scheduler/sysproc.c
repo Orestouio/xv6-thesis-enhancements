@@ -1,4 +1,3 @@
-// sysproc.c
 #include "types.h"
 #include "x86.h"
 #include "defs.h"
@@ -87,14 +86,18 @@ int sys_setpriority(void)
   if (priority < 0 || priority > 10)
     return -1;
   struct proc *p;
+  int i;
   acquire(&ptable.lock);
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if (p->pid == pid)
+  for (i = 0; i < NPROC; i++)
+  {
+    p = ptable.proc[i];
+    if (p && p->pid == pid)
     {
       p->priority = priority;
       release(&ptable.lock);
       return 0;
     }
+  }
   release(&ptable.lock);
   return -1;
 }
@@ -104,7 +107,7 @@ int sys_getcontextswitches(void)
   return context_switches;
 }
 
-int sys_print_sched_log(void) // Add this function
+int sys_print_sched_log(void)
 {
   print_sched_log();
   return 0;

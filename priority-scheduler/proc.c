@@ -7,10 +7,6 @@
 #include "proc.h"
 #include "spinlock.h"
 
-#ifndef CPUS
-#define CPUS 1
-#endif
-
 struct ptable ptable;
 static struct proc *initproc;
 
@@ -167,6 +163,8 @@ void log_schedule(int tick, int pid, int priority, int cs_count)
 void pinit(void)
 {
   initlock(&ptable.lock, "ptable");
+  for (int i = 0; i < NPROC; i++)
+    ptable.proc[i] = 0; // Initialize all pointers to null
   init_priority_queue();
 }
 
@@ -181,12 +179,13 @@ struct cpu *mycpu(void)
   if (readeflags() & FL_IF)
     panic("mycpu called with interrupts enabled\n");
   apicid = lapicid();
-  if (ncpu > CPUS)
-    ncpu = CPUS;
   for (i = 0; i < ncpu; ++i)
   {
-    if (cpus[i].apicid == apicid)
+    // Force apicid to match CPU index
+    if (i == apicid && cpus[i].apicid == i)
+    {
       return &cpus[i];
+    }
   }
   panic("unknown apicid\n");
 }
@@ -206,21 +205,33 @@ static struct proc *allocproc(void)
 {
   struct proc *p;
   char *sp;
+  int i;
 
   acquire(&ptable.lock);
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if (p->state == UNUSED)
-      goto found;
-  release(&ptable.lock);
-  return 0;
+  for (i = 0; i < NPROC; i++)
+    if (ptable.proc[i] == 0 || ptable.proc[i]->state == UNUSED)
+      break;
+  if (i == NPROC)
+  {
+    release(&ptable.lock);
+    return 0;
+  }
 
-found:
+  // Allocate a new proc struct
+  p = (struct proc *)kalloc();
+  if (p == 0)
+  {
+    release(&ptable.lock);
+    return 0;
+  }
+  memset(p, 0, sizeof(*p));
+  ptable.proc[i] = p;
+
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->priority = 5;
   p->wait_ticks = 0;
-  p->next = 0; // Initialize next pointer for priority queue
-
+  p->next = 0;
   p->creation_time = ticks;
   p->completion_time = 0;
   p->waiting_time = 0;
@@ -232,17 +243,16 @@ found:
   if ((p->kstack = kalloc()) == 0)
   {
     p->state = UNUSED;
+    ptable.proc[i] = 0;
+    kfree((char *)p);
     release(&ptable.lock);
     return 0;
   }
   sp = p->kstack + KSTACKSIZE;
-
   sp -= sizeof *p->tf;
   p->tf = (struct trapframe *)sp;
-
   sp -= 4;
   *(uint *)sp = (uint)trapret;
-
   sp -= sizeof *p->context;
   p->context = (struct context *)sp;
   memset(p->context, 0, sizeof *p->context);
@@ -258,8 +268,7 @@ void userinit(void)
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-
-  initproc = p;
+  initproc = p; // Temporarily set to PID 1
   if ((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
@@ -272,7 +281,6 @@ void userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;
-
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
@@ -320,6 +328,16 @@ int fork(void)
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
+    // Find and clear the ptable entry
+    for (i = 0; i < NPROC; i++)
+    {
+      if (ptable.proc[i] == np)
+      {
+        ptable.proc[i] = 0;
+        break;
+      }
+    }
+    kfree((char *)np);
     return -1;
   }
   np->sz = curproc->sz;
@@ -340,7 +358,6 @@ int fork(void)
   acquire(&ptable.lock);
   np->state = RUNNABLE;
   np->last_runnable_tick = ticks;
-  // If the process starts at priority 5, assume it's short-lived (for Tests 2, 5, 6)
   if (np->priority == 5)
   {
     add_to_short_lived_queue(np);
@@ -358,9 +375,46 @@ void exit(void)
   struct proc *curproc = myproc();
   struct proc *p;
   int fd;
+  int i;
+
+  // Check if the exiting process is initcode (PID 1)
+  if (curproc->pid == 1)
+  {
+    acquire(&ptable.lock);
+    for (i = 0; i < NPROC; i++)
+    {
+      p = ptable.proc[i];
+      if (p && p->pid == 2)
+      {
+        char *expected_name = "init";
+        int match = 1;
+        for (int j = 0; j < sizeof(p->name); j++)
+        {
+          if (expected_name[j] == '\0' && p->name[j] == '\0')
+            break;
+          if (p->name[j] != expected_name[j])
+          {
+            match = 0;
+            break;
+          }
+          if (expected_name[j] == '\0')
+            break;
+        }
+        if (match)
+        {
+          initproc = p;
+          break;
+        }
+      }
+    }
+    release(&ptable.lock);
+  }
 
   if (curproc == initproc)
+  {
+    cprintf("exit: init (pid=%d) exiting, killed=%d\n", curproc->pid, curproc->killed);
     panic("init exiting");
+  }
 
   for (fd = 0; fd < NOFILE; fd++)
   {
@@ -380,7 +434,6 @@ void exit(void)
 
   if (curproc->state == RUNNABLE)
   {
-    // Check if in short-lived queue or priority queue
     if (curproc->priority == 5)
     {
       remove_from_short_lived_queue(curproc);
@@ -393,9 +446,10 @@ void exit(void)
 
   wakeup1(curproc->parent);
 
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for (i = 0; i < NPROC; i++)
   {
-    if (p->parent == curproc)
+    p = ptable.proc[i];
+    if (p && p->parent == curproc)
     {
       p->parent = initproc;
       if (p->state == ZOMBIE)
@@ -406,6 +460,26 @@ void exit(void)
   curproc->completion_time = ticks;
   curproc->state = ZOMBIE;
   sched();
+
+  // Clear the process structure after scheduling
+  for (i = 0; i < NPROC; i++)
+  {
+    if (ptable.proc[i] == curproc)
+    {
+      kfree(curproc->kstack);
+      curproc->kstack = 0;
+      freevm(curproc->pgdir);
+      curproc->pid = 0;
+      curproc->parent = 0;
+      curproc->name[0] = '\0';
+      curproc->killed = 0;
+      curproc->state = UNUSED;
+      ptable.proc[i] = 0;
+      kfree((char *)curproc);
+      break;
+    }
+  }
+  release(&ptable.lock);
 }
 
 int wait(void)
@@ -413,14 +487,16 @@ int wait(void)
   struct proc *p;
   int havekids, pid;
   struct proc *curproc = myproc();
+  int i;
 
   acquire(&ptable.lock);
   for (;;)
   {
     havekids = 0;
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    for (i = 0; i < NPROC; i++)
     {
-      if (p->parent != curproc)
+      p = ptable.proc[i];
+      if (p == 0 || p->parent != curproc)
         continue;
       havekids = 1;
       if (p->state == ZOMBIE)
@@ -434,6 +510,8 @@ int wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        ptable.proc[i] = 0;
+        kfree((char *)p);
         release(&ptable.lock);
         return pid;
       }
@@ -461,16 +539,17 @@ void print_sched_log(void)
 
 void scheduler(void)
 {
-  struct cpu *c = mycpu();
+  struct cpu *c;
+  cprintf("scheduler: before mycpu\n");
+  c = mycpu();
+  cprintf("scheduler: after mycpu, c->apicid=%d\n", c->apicid);
   c->proc = 0;
 
   for (;;)
   {
-    sti();
     update_priorities();
     acquire(&ptable.lock);
 
-    // First, check the short-lived queue (FIFO)
     struct proc *selected = short_lived_queue.head;
     if (selected != 0)
     {
@@ -478,7 +557,6 @@ void scheduler(void)
     }
     else
     {
-      // If no short-lived processes, check the priority queue
       int highest_priority = 11;
       for (int i = 0; i < 11; i++)
       {
@@ -492,15 +570,14 @@ void scheduler(void)
       if (highest_priority == 11)
       {
         release(&ptable.lock);
+        sti(); // Enable interrupts here
         continue;
       }
 
-      // Select the first process in the highest-priority queue
       selected = priority_queue.head[highest_priority];
       remove_from_priority_queue(selected);
     }
 
-    // Update process metrics
     selected->waiting_time += ticks - selected->last_runnable_tick;
     selected->last_runnable_tick = ticks;
     if (selected->has_run == 0)
@@ -512,13 +589,17 @@ void scheduler(void)
     c->proc = selected;
     switchuvm(selected);
     selected->state = RUNNING;
+    // cprintf("scheduler: scheduling pid=%d, name=%s, priority=%d\n", selected->pid, selected->name, selected->priority);
     log_schedule(ticks, selected->pid, selected->priority, context_switches + 1);
     context_switches++;
+    // cprintf("scheduler: before swtch, mycpu()->apicid=%d\n", mycpu()->apicid);
     swtch(&(c->scheduler), selected->context);
+    // cprintf("scheduler: after swtch, mycpu()->apicid=%d\n", c->apicid);
     switchkvm();
     c->proc = 0;
 
     release(&ptable.lock);
+    sti(); // Enable interrupts after releasing the lock
   }
 }
 
@@ -538,14 +619,15 @@ void sched(void)
   intena = mycpu()->intena;
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
+  // Remove sti() from here
 }
 
 void yield(void)
 {
+  // cprintf("yield: acquiring ptable.lock on cpu%d\n", mycpu()->apicid);
   acquire(&ptable.lock);
   myproc()->state = RUNNABLE;
   myproc()->last_runnable_tick = ticks;
-  // Decide whether to add to short-lived queue or priority queue
   if (myproc()->priority == 5)
   {
     add_to_short_lived_queue(myproc());
@@ -555,6 +637,7 @@ void yield(void)
     add_to_priority_queue(myproc());
   }
   sched();
+  // cprintf("yield: releasing ptable.lock on cpu%d\n", mycpu()->apicid);
   release(&ptable.lock);
 }
 
@@ -604,20 +687,20 @@ void sleep(void *chan, struct spinlock *lk)
 static void wakeup1(void *chan)
 {
   struct proc *p;
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  int i;
+  for (i = 0; i < NPROC; i++)
   {
-    if (p->state == SLEEPING && p->chan == chan)
+    p = ptable.proc[i];
+    if (p && p->state == SLEEPING && p->chan == chan)
     {
       p->state = RUNNABLE;
       p->last_runnable_tick = ticks;
-      // Only boost priority for non-short-lived processes
       if (p->priority > 0 && p->priority != 5)
       {
         remove_from_priority_queue(p);
-        p->priority = 0; // Boost to highest priority
+        p->priority = 0;
         add_to_priority_queue(p);
       }
-      // Ensure proper queue placement
       if (p->priority == 5)
       {
         add_to_short_lived_queue(p);
@@ -640,11 +723,13 @@ void wakeup(void *chan)
 int kill(int pid)
 {
   struct proc *p;
+  int i;
 
   acquire(&ptable.lock);
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for (i = 0; i < NPROC; i++)
   {
-    if (p->pid == pid)
+    p = ptable.proc[i];
+    if (p && p->pid == pid)
     {
       p->killed = 1;
       if (p->state == SLEEPING)
@@ -677,14 +762,15 @@ void procdump(void)
       [RUNNABLE] "runble",
       [RUNNING] "run   ",
       [ZOMBIE] "zombie"};
-  int i;
+  int i, j;
   struct proc *p;
   char *state;
   uint pc[10];
 
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  for (j = 0; j < NPROC; j++)
   {
-    if (p->state == UNUSED)
+    p = ptable.proc[j];
+    if (p == 0 || p->state == UNUSED)
       continue;
     if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
@@ -704,12 +790,14 @@ void procdump(void)
 void update_priorities(void)
 {
   struct proc *p;
-  acquire(&ptable.lock);
-  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  int i;
+  // cprintf("update_priorities: starting\n");
+  for (i = 0; i < NPROC; i++)
   {
-    if (p->state == RUNNABLE || p->state == RUNNING || p->state == SLEEPING)
+    p = ptable.proc[i];
+    if (p && (p->state == RUNNABLE || p->state == RUNNING || p->state == SLEEPING))
     {
-      if (ticks - p->creation_time > 10000 && p->pid != 1)
+      if (ticks - p->creation_time > 10000 && p->pid != 1 && p->pid != 2) // Protect PID 2 (init)
       {
         p->killed = 1;
         if (p->state == SLEEPING)
@@ -728,7 +816,6 @@ void update_priorities(void)
         continue;
       }
 
-      // Force Test 3 processes (PIDs > 100) to stay at priority 5
       if (p->pid > 100 && p->priority != 5)
       {
         if (p->state == RUNNABLE)
@@ -775,5 +862,5 @@ void update_priorities(void)
       }
     }
   }
-  release(&ptable.lock);
+  // cprintf("update_priorities: done\n");
 }
