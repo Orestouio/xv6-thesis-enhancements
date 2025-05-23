@@ -181,8 +181,7 @@ struct cpu *mycpu(void)
   apicid = lapicid();
   for (i = 0; i < ncpu; ++i)
   {
-    // Force apicid to match CPU index
-    if (i == apicid && cpus[i].apicid == i)
+    if (cpus[i].apicid == apicid) // Match only on APIC ID
     {
       return &cpus[i];
     }
@@ -217,7 +216,6 @@ static struct proc *allocproc(void)
     return 0;
   }
 
-  // Allocate a new proc struct
   p = (struct proc *)kalloc();
   if (p == 0)
   {
@@ -328,7 +326,6 @@ int fork(void)
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
-    // Find and clear the ptable entry
     for (i = 0; i < NPROC; i++)
     {
       if (ptable.proc[i] == np)
@@ -377,7 +374,6 @@ void exit(void)
   int fd;
   int i;
 
-  // Check if the exiting process is initcode (PID 1)
   if (curproc->pid == 1)
   {
     acquire(&ptable.lock);
@@ -461,7 +457,6 @@ void exit(void)
   curproc->state = ZOMBIE;
   sched();
 
-  // Clear the process structure after scheduling
   for (i = 0; i < NPROC; i++)
   {
     if (ptable.proc[i] == curproc)
@@ -531,8 +526,8 @@ void print_sched_log(void)
 {
   for (int i = 0; i < log_index; i++)
   {
-    /*cprintf("Tick %d: Switch to PID %d, Priority %d, CS %d\n",
-            sched_log[i].tick, sched_log[i].pid, sched_log[i].priority, sched_log[i].cs_count);*/
+    // cprintf("Tick %d: Switch to PID %d, Priority %d, CS %d\n",
+    //         sched_log[i].tick, sched_log[i].pid, sched_log[i].priority, sched_log[i].cs_count);
   }
   log_index = 0;
 }
@@ -540,9 +535,9 @@ void print_sched_log(void)
 void scheduler(void)
 {
   struct cpu *c;
-  cprintf("scheduler: before mycpu\n");
+  // cprintf("scheduler: before mycpu\n");
   c = mycpu();
-  cprintf("scheduler: after mycpu, c->apicid=%d\n", c->apicid);
+  // cprintf("scheduler: after mycpu, c->apicid=%d\n", c->apicid);
   c->proc = 0;
 
   for (;;)
@@ -570,7 +565,7 @@ void scheduler(void)
       if (highest_priority == 11)
       {
         release(&ptable.lock);
-        sti(); // Enable interrupts here
+        sti();
         continue;
       }
 
@@ -599,7 +594,7 @@ void scheduler(void)
     c->proc = 0;
 
     release(&ptable.lock);
-    sti(); // Enable interrupts after releasing the lock
+    sti();
   }
 }
 
@@ -619,7 +614,6 @@ void sched(void)
   intena = mycpu()->intena;
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
-  // Remove sti() from here
 }
 
 void yield(void)
@@ -644,7 +638,6 @@ void yield(void)
 void forkret(void)
 {
   static int first = 1;
-  // Release the ptable.lock that was held when the process was scheduled
   release(&ptable.lock);
 
   if (first)
@@ -797,7 +790,7 @@ void update_priorities(void)
     p = ptable.proc[i];
     if (p && (p->state == RUNNABLE || p->state == RUNNING || p->state == SLEEPING))
     {
-      if (ticks - p->creation_time > 10000 && p->pid != 1 && p->pid != 2) // Protect PID 2 (init)
+      if (ticks - p->creation_time > 10000 && p->pid != 1 && p->pid != 2)
       {
         p->killed = 1;
         if (p->state == SLEEPING)

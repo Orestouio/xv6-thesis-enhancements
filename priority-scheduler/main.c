@@ -26,18 +26,18 @@ int main(void)
   consoleinit();
   uartinit();
 
-  cprintf("After mpinit: ncpu=%d\n", ncpu);
-  for (int i = 0; i < ncpu; i++)
-    cprintf("cpus[%d].apicid=%d\n", i, cpus[i].apicid);
+  // cprintf("After mpinit: ncpu=%d\n", ncpu);
+  // for (int i = 0; i < ncpu; i++)
+  //   cprintf("cpus[%d].apicid=%d\n", i, cpus[i].apicid);
 
-  cprintf("Debug: ncpu=%d, CPUS=%d\n", ncpu, CPUS);
+  // cprintf("Debug: ncpu=%d, CPUS=%d\n", ncpu, CPUS);
   pinit();
   tvinit();
-  cprintf("Before binit\n");
+  // cprintf("Before binit\n");
   binit();
-  cprintf("Before fileinit\n");
+  // cprintf("Before fileinit\n");
   fileinit();
-  cprintf("Before ideinit\n");
+  // cprintf("Before ideinit\n");
   ideinit();
   userinit();
   startothers();
@@ -55,15 +55,15 @@ static void mpenter(void)
 
 static void mpmain(void)
 {
-  cprintf("cpu%d: starting %d\n", cpuid(), cpuid());
-  cprintf("mpmain: ncpu=%d\n", ncpu);
-  for (int i = 0; i < ncpu; i++)
-    cprintf("mpmain: cpus[%d].apicid=%d\n", i, cpus[i].apicid);
-  cprintf("mpmain: before idtinit\n");
+  // cprintf("cpu%d: starting %d\n", cpuid(), cpuid());
+  //  cprintf("mpmain: ncpu=%d\n", ncpu);
+  //  for (int i = 0; i < ncpu; i++)
+  //    cprintf("mpmain: cpus[%d].apicid=%d\n", i, cpus[i].apicid);
+  //  cprintf("mpmain: before idtinit\n");
   idtinit();
-  cprintf("mpmain: before xchg, mycpu()->apicid=%d\n", mycpu()->apicid);
+  // cprintf("mpmain: before xchg, mycpu()->apicid=%d\n", mycpu()->apicid);
   xchg(&(mycpu()->started), 1);
-  cprintf("mpmain: before scheduler\n");
+  // cprintf("mpmain: before scheduler\n");
   scheduler();
 }
 
@@ -97,11 +97,6 @@ static void startothers(void)
   }
 }
 
-// The boot page table used in entry.S and entryother.S.
-// Page directories (and page tables) must start on page boundaries,
-// hence the __aligned__ attribute.
-// PTE_PS in a page directory entry enables 4Mbyte pages.
-
 __attribute__((__aligned__(PGSIZE)))
 pde_t entrypgdir[NPDENTRIES] = {
     [0] = (0) | PTE_P | PTE_W | PTE_PS, // VA 0 -> PA 0 (4MB)
@@ -110,10 +105,3 @@ pde_t entrypgdir[NPDENTRIES] = {
     [(KERNBASE + 0xFEE00000) >>
         PDXSHIFT] = (0xFEE00000) | PTE_P | PTE_W | PTE_PS, // VA KERNBASE+0xFEE00000 -> PA 0xFEE00000 (4MB)
 };
-
-// PAGEBREAK!
-//  Blank page.
-// PAGEBREAK!
-//  Blank page.
-// PAGEBREAK!
-//  Blank page.
