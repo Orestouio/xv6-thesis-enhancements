@@ -6,40 +6,8 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-
-// Random number generator state
-static unsigned int randstate = 1;
-
-// Seed the random number generator
-void srand(unsigned int seed)
-{
-  randstate = seed;
-  if (randstate == 0) // Ensure non-zero state for Xorshift
-    randstate = 1;
-}
-
-// Generate a random number using Xorshift algorithm
-unsigned int rand(void)
-{
-  unsigned int x = randstate;
-  x ^= (x << 13);
-  x ^= (x >> 17);
-  x ^= (x << 5);
-  randstate = x;
-  return x & 0x7fffffff;
-}
-
-// Generate a random number in the range [0, max)
-unsigned int rand_range(unsigned int max)
-{
-  unsigned int threshold = (0x7fffffff / max) * max;
-  unsigned int r;
-  do
-  {
-    r = rand();
-  } while (r >= threshold); // Avoid modulo bias
-  return r % max;
-}
+#include "runqueue.h"
+#include "rand.h"
 
 // Process table and lock
 struct proc ptable[NPROC];
@@ -53,10 +21,13 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
-// Initialize the process table lock
 void pinit(void)
 {
   initlock(&ptable_lock, "ptable");
+  for (int i = 0; i < ncpu; i++)
+  {
+    rq_init(&cpus[i].rq);
+  }
 }
 
 // Get the current CPU ID (must be called with interrupts disabled)
@@ -109,6 +80,7 @@ static struct proc *allocproc(void)
       p->tickets = 1;         // Default to 1 ticket
       p->ticks_scheduled = 0; // Initialize scheduling counter
       p->pid = nextpid++;
+      p->cpu = -1; // Initialize to -1 (not assigned to a CPU yet)
       release(&ptable_lock);
 
       // Allocate kernel stack
@@ -173,6 +145,8 @@ void userinit(void)
 
   acquire(&ptable_lock);
   p->state = RUNNABLE;
+  p->cpu = 0;
+  rq_add(&cpus[0].rq, p); // rq_add handles its own locking
   release(&ptable_lock);
 }
 
@@ -212,7 +186,9 @@ int fork(void)
   {
     kfree(np->kstack);
     np->kstack = 0;
+    acquire(&ptable_lock);
     np->state = UNUSED;
+    release(&ptable_lock);
     return -1;
   }
   np->sz = curproc->sz;
@@ -232,7 +208,26 @@ int fork(void)
   np->tickets = curproc->tickets;
 
   acquire(&ptable_lock);
+  // Find CPU with fewest tickets
+  int min_tickets = 999999;
+  int target_cpu = 0;
+  for (i = 0; i < ncpu; i++)
+  {
+    int cpu_tickets = 0;
+    acquire(&cpus[i].rq.lock);
+    for (int j = 0; j < cpus[i].rq.count; j++)
+      if (cpus[i].rq.procs[j])
+        cpu_tickets += cpus[i].rq.procs[j]->tickets;
+    release(&cpus[i].rq.lock);
+    if (cpu_tickets < min_tickets)
+    {
+      min_tickets = cpu_tickets;
+      target_cpu = i;
+    }
+  }
   np->state = RUNNABLE;
+  np->cpu = target_cpu;
+  rq_add(&cpus[target_cpu].rq, np);
   release(&ptable_lock);
 
   return pid;
@@ -276,6 +271,9 @@ void exit(void)
   }
 
   curproc->state = ZOMBIE;
+  if (curproc->cpu < 0 || curproc->cpu >= ncpu)
+    panic("exit: invalid CPU assignment");
+  rq_remove(&cpus[curproc->cpu].rq, curproc); // Remove from the run queue since it's ZOMBIE
   sched();
   panic("zombie exit");
 }
@@ -307,6 +305,9 @@ int wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        if (p->cpu < 0 || p->cpu >= ncpu)
+          panic("wait: invalid CPU assignment");
+        rq_remove(&cpus[p->cpu].rq, p); // Ensure the process is removed from the run queue
         release(&ptable_lock);
         return pid;
       }
@@ -327,11 +328,6 @@ void scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  struct proc *runnable_procs[NPROC];
-  int runnable_count;
-  int total_tickets;
-  int winner;
-  int current_tickets;
   static int sched_count = 0;
 
   c->proc = 0;
@@ -340,61 +336,23 @@ void scheduler(void)
   {
     sti();
 
-    total_tickets = 0;
-    runnable_count = 0;
-    acquire(&ptable_lock);
-
-    // Collect all RUNNABLE processes
-    for (p = ptable; p < &ptable[NPROC]; p++)
+    p = rq_select(&c->rq, sched_count); // rq_select handles its own locking
+    if (p == 0)                         // No runnable processes on this CPU
     {
-      if (p->state == RUNNABLE)
-      {
-        runnable_procs[runnable_count++] = p;
-        total_tickets += p->tickets;
-      }
-    }
-
-    if (total_tickets == 0)
-    {
-      release(&ptable_lock);
       continue;
     }
 
-    // Shuffle runnable processes to eliminate ordering bias
-    for (int i = runnable_count - 1; i > 0; i--)
-    {
-      srand(ticks + lapicid() + randstate + i);
-      int j = rand_range(i + 1);
-      struct proc *temp = runnable_procs[i];
-      runnable_procs[i] = runnable_procs[j];
-      runnable_procs[j] = temp;
-    }
-
-    // Pick a random winning ticket
-    srand(ticks + lapicid() + randstate + runnable_count + sched_count);
-    winner = rand_range(total_tickets);
-
-    // Select the process whose ticket range includes the winner
-    current_tickets = 0;
-    for (int i = 0; i < runnable_count; i++)
-    {
-      p = runnable_procs[i];
-      int effective_tickets = p->tickets;
-      if (winner < effective_tickets + current_tickets)
-      {
-        c->proc = p;
-        switchuvm(p);
-        p->state = RUNNING;
-        p->ticks_scheduled++;
-        swtch(&(c->scheduler), p->context);
-        switchkvm();
-        c->proc = 0;
-        break;
-      }
-      current_tickets += effective_tickets;
-    }
-
+    acquire(&ptable_lock); // Protect state changes and c->proc
+    rq_remove(&c->rq, p);  // rq_remove handles its own locking
+    c->proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+    p->ticks_scheduled++;
+    swtch(&(c->scheduler), p->context);
+    switchkvm();
+    c->proc = 0;
     release(&ptable_lock);
+
     sched_count++;
   }
 }
@@ -413,6 +371,15 @@ void sched(void)
     panic("sched running");
   if (readeflags() & FL_IF)
     panic("sched interruptible");
+
+  // If the process is RUNNABLE, add it back to its assigned CPU's run queue
+  if (p->state == RUNNABLE)
+  {
+    if (p->cpu < 0 || p->cpu >= ncpu)
+      panic("sched: invalid CPU assignment");
+    rq_add(&cpus[p->cpu].rq, p);
+  }
+
   intena = mycpu()->intena;
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
@@ -421,8 +388,12 @@ void sched(void)
 // Yield the CPU for one scheduling round
 void yield(void)
 {
+  struct proc *p = myproc();
+  if (p->cpu < 0 || p->cpu >= ncpu)
+    panic("yield: invalid CPU assignment");
+
   acquire(&ptable_lock);
-  myproc()->state = RUNNABLE;
+  p->state = RUNNABLE;
   sched();
   release(&ptable_lock);
 }
@@ -458,6 +429,9 @@ void sleep(void *chan, struct spinlock *lk)
   }
   p->chan = chan;
   p->state = SLEEPING;
+  if (p->cpu < 0 || p->cpu >= ncpu)
+    panic("sleep: invalid CPU assignment");
+  rq_remove(&cpus[p->cpu].rq, p); // Remove from the run queue since it's SLEEPING
 
   sched();
 
@@ -476,8 +450,15 @@ static void wakeup1(void *chan)
   struct proc *p;
 
   for (p = ptable; p < &ptable[NPROC]; p++)
+  {
     if (p->state == SLEEPING && p->chan == chan)
+    {
       p->state = RUNNABLE;
+      if (p->cpu < 0 || p->cpu >= ncpu)
+        panic("wakeup1: invalid CPU assignment");
+      rq_add(&cpus[p->cpu].rq, p); // Add to the assigned CPU's run queue
+    }
+  }
 }
 
 // Wake up all processes sleeping on a channel
@@ -500,7 +481,12 @@ int kill(int pid)
     {
       p->killed = 1;
       if (p->state == SLEEPING)
+      {
         p->state = RUNNABLE;
+        if (p->cpu < 0 || p->cpu >= ncpu)
+          panic("kill: invalid CPU assignment");
+        rq_add(&cpus[p->cpu].rq, p); // Add to the assigned CPU's run queue
+      }
       release(&ptable_lock);
       return 0;
     }

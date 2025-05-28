@@ -1,3 +1,10 @@
+#ifndef PROC_H
+#define PROC_H
+
+#include "runqueue.h"
+#include "param.h" // For NCPU, NOFILE
+#include "mmu.h"   // For NSEGS, struct segdesc
+
 // Per-CPU state
 struct cpu
 {
@@ -9,6 +16,7 @@ struct cpu
   int ncli;
   int intena;
   struct proc *proc;
+  struct runqueue rq;
 };
 
 extern struct cpu cpus[NCPU];
@@ -52,6 +60,9 @@ struct proc
   int ticks_scheduled;
   int expected_schedules; // Expected schedules based on ticket proportion (new field)
   int ticket_boost;       // Temporary boost to tickets for fairness (new field)
+  int cpu;
 };
 
 void srand(unsigned int seed);
+
+#endif
