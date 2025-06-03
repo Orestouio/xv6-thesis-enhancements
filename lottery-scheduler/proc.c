@@ -77,13 +77,16 @@ static struct proc *allocproc(void)
     if (p->state == UNUSED)
     {
       p->state = EMBRYO;
-      p->tickets = 1;         // Default to 1 ticket
-      p->ticks_scheduled = 0; // Initialize scheduling counter
+      p->tickets = 1;
+      p->boost = 0;
+      p->ticks_scheduled = 0;
+      p->expected_schedules = 0;
+      p->recent_schedules = 0; // Initialize
+      p->last_scheduled = 0;
       p->pid = nextpid++;
-      p->cpu = -1; // Initialize to -1 (not assigned to a CPU yet)
+      p->cpu = -1;
       release(&ptable_lock);
 
-      // Allocate kernel stack
       if ((p->kstack = kalloc()) == 0)
       {
         acquire(&ptable_lock);
@@ -93,11 +96,9 @@ static struct proc *allocproc(void)
       }
       sp = p->kstack + KSTACKSIZE;
 
-      // Set up trap frame
       sp -= sizeof *p->tf;
       p->tf = (struct trapframe *)sp;
 
-      // Set up context to start at forkret
       sp -= 4;
       *(uint *)sp = (uint)trapret;
 
@@ -206,9 +207,9 @@ int fork(void)
 
   pid = np->pid;
   np->tickets = curproc->tickets;
+  np->boost = curproc->tickets * 2; // Increase boost for short-lived processes
 
   acquire(&ptable_lock);
-  // Find CPU with fewest tickets
   int min_tickets = 999999;
   int target_cpu = 0;
   for (i = 0; i < ncpu; i++)
@@ -217,7 +218,7 @@ int fork(void)
     acquire(&cpus[i].rq.lock);
     for (int j = 0; j < cpus[i].rq.count; j++)
       if (cpus[i].rq.procs[j])
-        cpu_tickets += cpus[i].rq.procs[j]->tickets;
+        cpu_tickets += (cpus[i].rq.procs[j]->tickets + cpus[i].rq.procs[j]->boost);
     release(&cpus[i].rq.lock);
     if (cpu_tickets < min_tickets)
     {
@@ -334,29 +335,62 @@ void scheduler(void)
 
   for (;;)
   {
-    sti();
+    cli();
 
-    p = rq_select(&c->rq, sched_count); // rq_select handles its own locking
-    if (p == 0)                         // No runnable processes on this CPU
+    // Decay recent_schedules for all processes periodically
+    if (sched_count % 100 == 0)
     {
+      acquire(&ptable_lock);
+      for (struct proc *proc = ptable; proc < &ptable[NPROC]; proc++)
+      {
+        if (proc->state == RUNNABLE || proc->state == RUNNING)
+          proc->recent_schedules = proc->recent_schedules * 3 / 4;
+      }
+      release(&ptable_lock);
+    }
+
+    p = rq_select(&c->rq, sched_count);
+    if (p == 0)
+    {
+      // Debug: Check if all processes are non-runnable
+      acquire(&ptable_lock);
+      int runnable_count = 0;
+      for (struct proc *proc = ptable; proc < &ptable[NPROC]; proc++)
+      {
+        if (proc->state == RUNNABLE && proc->cpu == c->apicid)
+          runnable_count++;
+      }
+
+      release(&ptable_lock);
+      sti();
       continue;
     }
 
-    acquire(&ptable_lock); // Protect state changes and c->proc
-    rq_remove(&c->rq, p);  // rq_remove handles its own locking
+    acquire(&ptable_lock);
+    rq_remove(&c->rq, p);
     c->proc = p;
     switchuvm(p);
     p->state = RUNNING;
     p->ticks_scheduled++;
+    p->recent_schedules++;
+    p->last_scheduled = ticks;
+    if (p->boost > 0)
+    {
+      int ticks_waited = ticks - p->last_scheduled;
+      if (ticks_waited > 200)
+        p->boost = p->boost * 3 / 4;
+      else
+        p->boost = p->boost / 2;
+    }
     swtch(&(c->scheduler), p->context);
     switchkvm();
     c->proc = 0;
     release(&ptable_lock);
 
     sched_count++;
+    sti();
   }
 }
-
 // Enter the scheduler (must hold ptable_lock)
 void sched(void)
 {
@@ -429,9 +463,11 @@ void sleep(void *chan, struct spinlock *lk)
   }
   p->chan = chan;
   p->state = SLEEPING;
+  p->boost = p->tickets * 2;
+  p->recent_schedules = 0; // Reset on sleep
   if (p->cpu < 0 || p->cpu >= ncpu)
     panic("sleep: invalid CPU assignment");
-  rq_remove(&cpus[p->cpu].rq, p); // Remove from the run queue since it's SLEEPING
+  rq_remove(&cpus[p->cpu].rq, p);
 
   sched();
 
@@ -444,7 +480,6 @@ void sleep(void *chan, struct spinlock *lk)
   }
 }
 
-// Wake up all processes sleeping on a channel (must hold ptable_lock)
 static void wakeup1(void *chan)
 {
   struct proc *p;
@@ -454,9 +489,11 @@ static void wakeup1(void *chan)
     if (p->state == SLEEPING && p->chan == chan)
     {
       p->state = RUNNABLE;
+      p->boost = p->tickets * 2;
+      p->recent_schedules = 0; // Reset on wakeup
       if (p->cpu < 0 || p->cpu >= ncpu)
         panic("wakeup1: invalid CPU assignment");
-      rq_add(&cpus[p->cpu].rq, p); // Add to the assigned CPU's run queue
+      rq_add(&cpus[p->cpu].rq, p);
     }
   }
 }

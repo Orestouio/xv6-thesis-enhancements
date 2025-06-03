@@ -5,6 +5,9 @@
 #include "param.h" // For NCPU, NOFILE
 #include "mmu.h"   // For NSEGS, struct segdesc
 
+struct spinlock ptable_lock;
+struct spinlock load_balance_lock;
+
 // Per-CPU state
 struct cpu
 {
@@ -57,10 +60,13 @@ struct proc
   struct inode *cwd;
   char name[16];
   int tickets;
+  int boost; // Temporary boost to tickets for fairness
   int ticks_scheduled;
   int expected_schedules; // Expected schedules based on ticket proportion (new field)
   int ticket_boost;       // Temporary boost to tickets for fairness (new field)
+  int recent_schedules;   // New field to track recent scheduling frequency
   int cpu;
+  uint last_scheduled; // Add this to track last scheduled time
 };
 
 void srand(unsigned int seed);

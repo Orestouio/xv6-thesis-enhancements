@@ -15,7 +15,6 @@ void rq_init(struct runqueue *rq)
     }
 }
 
-// Add a process to the run queue
 void rq_add(struct runqueue *rq, struct proc *p)
 {
     acquire(&rq->lock);
@@ -35,7 +34,6 @@ void rq_add(struct runqueue *rq, struct proc *p)
     release(&rq->lock);
 }
 
-// Remove a process from the run queue
 void rq_remove(struct runqueue *rq, struct proc *p)
 {
     acquire(&rq->lock);
@@ -66,21 +64,43 @@ struct proc *rq_select(struct runqueue *rq, int sched_count)
         return 0;
     }
 
+    // Step 1: Compute total effective tickets with dynamic scaling
     int total_tickets = 0;
     for (int i = 0; i < MAX_PROCS; i++)
     {
         if (rq->procs[i])
         {
-            total_tickets += rq->procs[i]->tickets;
+            struct proc *p = rq->procs[i];
+            int ticks_waited = ticks - p->last_scheduled;
+            int effective_tickets = p->tickets;
+            if (p->recent_schedules > 50)
+                effective_tickets = effective_tickets * 9 / 10; // Less aggressive reduction
+            if (ticks_waited > 100)
+                effective_tickets = effective_tickets * (1 + ticks_waited / 100); // Less aggressive boost
+            if (effective_tickets < 1)
+                effective_tickets = 1;
+            p->boost = effective_tickets - p->tickets;
+            total_tickets += effective_tickets;
         }
     }
 
     if (total_tickets == 0)
     {
+        cprintf("rq_select: total_tickets = 0, count = %d\n", rq->count);
+        for (int i = 0; i < MAX_PROCS; i++)
+        {
+            if (rq->procs[i])
+            {
+                struct proc *p = rq->procs[i];
+                cprintf("Proc %d: tickets=%d, recent_schedules=%d, last_scheduled=%d, state=%d\n",
+                        p->pid, p->tickets, p->recent_schedules, p->last_scheduled, p->state);
+            }
+        }
         release(&rq->lock);
         return 0;
     }
 
+    // Step 2: Lottery scheduling with effective tickets
     struct proc *temp_procs[MAX_PROCS];
     int temp_count = 0;
     for (int i = 0; i < MAX_PROCS; i++)
@@ -106,7 +126,13 @@ struct proc *rq_select(struct runqueue *rq, int sched_count)
     for (int i = 0; i < temp_count; i++)
     {
         struct proc *p = temp_procs[i];
-        int effective_tickets = p->tickets;
+        int effective_tickets = p->tickets + p->boost;
+        if (effective_tickets < 1)
+            effective_tickets = 1;
+        if (total_tickets > 1000)
+        {
+            effective_tickets = (effective_tickets * 1000) / total_tickets;
+        }
         if (winner < effective_tickets + current_tickets)
         {
             selected = p;

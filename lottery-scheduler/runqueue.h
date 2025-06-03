@@ -3,13 +3,13 @@
 
 #include "spinlock.h"
 
-#define MAX_PROCS 64 // Maximum processes per run queue (same as NPROC)
+#define MAX_PROCS 64
 
 struct runqueue
 {
-    struct proc *procs[MAX_PROCS]; // Array of pointers to runnable processes
-    int count;                     // Number of runnable processes
-    struct spinlock lock;          // Lock for this run queue
+    struct proc *procs[MAX_PROCS];
+    int count;
+    struct spinlock lock;
 };
 
 void rq_init(struct runqueue *rq);
