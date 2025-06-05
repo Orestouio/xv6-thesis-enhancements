@@ -1,3 +1,22 @@
+/*
+ * proc.c - Process Management Implementation for xv6
+ *
+ * This file implements process management for the xv6 operating system with a
+ * lottery scheduler. It includes functions for process creation, scheduling,
+ * context switching, and termination. The lottery scheduler uses per-CPU runqueues
+ * to manage processes, with each process assigned a number of tickets to determine
+ * its scheduling probability. A starvation prevention mechanism boosts tickets for
+ * processes that have waited too long.
+ *
+ * Key Functions:
+ * - pinit(): Initializes the process table and per-CPU runqueues.
+ * - allocproc(): Allocates a new process structure.
+ * - scheduler(): Main scheduling loop using lottery scheduling.
+ * - fork(): Creates a new child process.
+ * - exit(): Terminates the current process.
+ * - wait(): Waits for a child process to terminate.
+ */
+
 #include "types.h"
 #include "defs.h"
 #include "param.h"
@@ -9,18 +28,22 @@
 #include "runqueue.h"
 #include "rand.h"
 
-// Process table and lock
+// Global process table and lock
 struct proc ptable[NPROC];
 struct spinlock ptable_lock;
 
+// Initial process and next PID counter
 static struct proc *initproc;
 int nextpid = 1;
 
+// External function declarations
 extern void forkret(void);
 extern void trapret(void);
 
+// Forward declaration
 static void wakeup1(void *chan);
 
+// Initialize the process table and per-CPU runqueues
 void pinit(void)
 {
   initlock(&ptable_lock, "ptable");
@@ -30,30 +53,35 @@ void pinit(void)
   }
 }
 
-// Get the current CPU ID (must be called with interrupts disabled)
+// Get the ID of the current CPU
 int cpuid(void)
 {
   return mycpu() - cpus;
 }
 
-// Get the current CPU structure (must be called with interrupts disabled)
+// Get a pointer to the current CPU structure
 struct cpu *mycpu(void)
 {
   int apicid, i;
 
+  // Check if interrupts are enabled (should not be)
   if (readeflags() & FL_IF)
+  {
     panic("mycpu called with interrupts enabled\n");
+  }
 
   apicid = lapicid();
   for (i = 0; i < ncpu; ++i)
   {
     if (cpus[i].apicid == apicid)
+    {
       return &cpus[i];
+    }
   }
   panic("unknown apicid\n");
 }
 
-// Get the current process (disables interrupts to prevent rescheduling)
+// Get a pointer to the current process
 struct proc *myproc(void)
 {
   struct cpu *c;
@@ -72,21 +100,21 @@ static struct proc *allocproc(void)
   char *sp;
 
   acquire(&ptable_lock);
+  // Find an unused process slot
   for (p = ptable; p < &ptable[NPROC]; p++)
   {
     if (p->state == UNUSED)
     {
       p->state = EMBRYO;
-      p->tickets = 1;
-      p->boost = 0;
-      p->ticks_scheduled = 0;
-      p->expected_schedules = 0;
-      p->recent_schedules = 0; // Initialize
-      p->last_scheduled = 0;
-      p->pid = nextpid++;
-      p->cpu = -1;
+      p->tickets = 1;          // Default ticket count
+      p->ticks_scheduled = 0;  // Initialize scheduling count
+      p->recent_schedules = 0; // Initialize recent scheduling count
+      p->last_scheduled = 0;   // Initialize last scheduled tick
+      p->pid = nextpid++;      // Assign a new PID
+      p->cpu = -1;             // Initially unassigned to any CPU
       release(&ptable_lock);
 
+      // Allocate kernel stack
       if ((p->kstack = kalloc()) == 0)
       {
         acquire(&ptable_lock);
@@ -96,12 +124,15 @@ static struct proc *allocproc(void)
       }
       sp = p->kstack + KSTACKSIZE;
 
+      // Set up trap frame
       sp -= sizeof *p->tf;
       p->tf = (struct trapframe *)sp;
 
+      // Set up return address to trapret
       sp -= 4;
       *(uint *)sp = (uint)trapret;
 
+      // Set up context for forkret
       sp -= sizeof *p->context;
       p->context = (struct context *)sp;
       memset(p->context, 0, sizeof *p->context);
@@ -114,7 +145,7 @@ static struct proc *allocproc(void)
   return 0;
 }
 
-// Set up the first user process
+// Initialize the first user process (initcode)
 void userinit(void)
 {
   struct proc *p;
@@ -123,8 +154,11 @@ void userinit(void)
   p = allocproc();
   initproc = p;
 
+  // Set up page directory and user memory
   if ((p->pgdir = setupkvm()) == 0)
+  {
     panic("userinit: out of memory?");
+  }
   inituvm(p->pgdir, _binary_initcode_start, (int)_binary_initcode_size);
   p->sz = PGSIZE;
   memset(p->tf, 0, sizeof(*p->tf));
@@ -134,20 +168,16 @@ void userinit(void)
   p->tf->ss = p->tf->ds;
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
-  p->tf->eip = 0; // Start of initcode.S
+  p->tf->eip = 0;
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
-  // Seed the random number generator
-  acquire(&tickslock);
-  srand(ticks + lapicid() + p->pid);
-  release(&tickslock);
-
+  // Add the process to CPU 0's runqueue
   acquire(&ptable_lock);
   p->state = RUNNABLE;
   p->cpu = 0;
-  rq_add(&cpus[0].rq, p); // rq_add handles its own locking
+  rq_add(&cpus[0].rq, p);
   release(&ptable_lock);
 }
 
@@ -161,28 +191,36 @@ int growproc(int n)
   if (n > 0)
   {
     if ((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
+    {
       return -1;
+    }
   }
   else if (n < 0)
   {
     if ((sz = deallocuvm(curproc->pgdir, sz, sz + n)) == 0)
+    {
       return -1;
+    }
   }
   curproc->sz = sz;
   switchuvm(curproc);
   return 0;
 }
 
-// Create a new process by copying the parent
+// Create a new child process by duplicating the current process
 int fork(void)
 {
   int i, pid;
   struct proc *np;
   struct proc *curproc = myproc();
 
+  // Allocate a new process
   if ((np = allocproc()) == 0)
+  {
     return -1;
+  }
 
+  // Copy the parent's memory
   if ((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0)
   {
     kfree(np->kstack);
@@ -196,19 +234,25 @@ int fork(void)
   np->parent = curproc;
   *np->tf = *curproc->tf;
 
+  // Set return value for child
   np->tf->eax = 0;
 
+  // Duplicate open files and current directory
   for (i = 0; i < NOFILE; i++)
+  {
     if (curproc->ofile[i])
+    {
       np->ofile[i] = filedup(curproc->ofile[i]);
+    }
+  }
   np->cwd = idup(curproc->cwd);
 
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
   pid = np->pid;
-  np->tickets = curproc->tickets;
-  np->boost = curproc->tickets * 2; // Increase boost for short-lived processes
+  np->tickets = curproc->tickets; // Inherit parent's ticket count
 
+  // Assign the new process to the CPU with the least total tickets
   acquire(&ptable_lock);
   int min_tickets = 999999;
   int target_cpu = 0;
@@ -217,8 +261,12 @@ int fork(void)
     int cpu_tickets = 0;
     acquire(&cpus[i].rq.lock);
     for (int j = 0; j < cpus[i].rq.count; j++)
+    {
       if (cpus[i].rq.procs[j])
-        cpu_tickets += (cpus[i].rq.procs[j]->tickets + cpus[i].rq.procs[j]->boost);
+      {
+        cpu_tickets += cpus[i].rq.procs[j]->tickets;
+      }
+    }
     release(&cpus[i].rq.lock);
     if (cpu_tickets < min_tickets)
     {
@@ -234,7 +282,7 @@ int fork(void)
   return pid;
 }
 
-// Exit the current process
+// Terminate the current process
 void exit(void)
 {
   struct proc *curproc = myproc();
@@ -242,8 +290,11 @@ void exit(void)
   int fd;
 
   if (curproc == initproc)
+  {
     panic("init exiting");
+  }
 
+  // Close all open files
   for (fd = 0; fd < NOFILE; fd++)
   {
     if (curproc->ofile[fd])
@@ -253,6 +304,7 @@ void exit(void)
     }
   }
 
+  // Release current directory
   begin_op();
   iput(curproc->cwd);
   end_op();
@@ -261,25 +313,31 @@ void exit(void)
   acquire(&ptable_lock);
   wakeup1(curproc->parent);
 
+  // Reassign children to initproc
   for (p = ptable; p < &ptable[NPROC]; p++)
   {
     if (p->parent == curproc)
     {
       p->parent = initproc;
       if (p->state == ZOMBIE)
+      {
         wakeup1(initproc);
+      }
     }
   }
 
+  // Mark process as ZOMBIE and remove from runqueue
   curproc->state = ZOMBIE;
   if (curproc->cpu < 0 || curproc->cpu >= ncpu)
+  {
     panic("exit: invalid CPU assignment");
-  rq_remove(&cpus[curproc->cpu].rq, curproc); // Remove from the run queue since it's ZOMBIE
+  }
+  rq_remove(&cpus[curproc->cpu].rq, curproc);
   sched();
   panic("zombie exit");
 }
 
-// Wait for a child process to exit and return its PID
+// Wait for a child process to terminate
 int wait(void)
 {
   struct proc *p;
@@ -293,7 +351,9 @@ int wait(void)
     for (p = ptable; p < &ptable[NPROC]; p++)
     {
       if (p->parent != curproc)
+      {
         continue;
+      }
       havekids = 1;
       if (p->state == ZOMBIE)
       {
@@ -307,8 +367,10 @@ int wait(void)
         p->killed = 0;
         p->state = UNUSED;
         if (p->cpu < 0 || p->cpu >= ncpu)
+        {
           panic("wait: invalid CPU assignment");
-        rq_remove(&cpus[p->cpu].rq, p); // Ensure the process is removed from the run queue
+        }
+        rq_remove(&cpus[p->cpu].rq, p);
         release(&ptable_lock);
         return pid;
       }
@@ -324,48 +386,53 @@ int wait(void)
   }
 }
 
-// Lottery scheduler
+// Main scheduler loop using lottery scheduling
 void scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  static int sched_count = 0;
+  static int sched_count = 0; // Counter for scheduling decisions
 
   c->proc = 0;
 
   for (;;)
   {
-    cli();
+    cli(); // Disable interrupts
 
-    // Decay recent_schedules for all processes periodically
+    // Periodically decay recent_schedules to prevent long-term bias
     if (sched_count % 100 == 0)
     {
       acquire(&ptable_lock);
       for (struct proc *proc = ptable; proc < &ptable[NPROC]; proc++)
       {
         if (proc->state == RUNNABLE || proc->state == RUNNING)
+        {
           proc->recent_schedules = proc->recent_schedules * 3 / 4;
+        }
       }
       release(&ptable_lock);
     }
 
+    // Select a process to run using lottery scheduling
     p = rq_select(&c->rq, sched_count);
     if (p == 0)
     {
-      // Debug: Check if all processes are non-runnable
+      // No process selected; check for any runnable processes
       acquire(&ptable_lock);
       int runnable_count = 0;
       for (struct proc *proc = ptable; proc < &ptable[NPROC]; proc++)
       {
         if (proc->state == RUNNABLE && proc->cpu == c->apicid)
+        {
           runnable_count++;
+        }
       }
-
       release(&ptable_lock);
-      sti();
+      sti(); // Re-enable interrupts
       continue;
     }
 
+    // Run the selected process
     acquire(&ptable_lock);
     rq_remove(&c->rq, p);
     c->proc = p;
@@ -374,43 +441,47 @@ void scheduler(void)
     p->ticks_scheduled++;
     p->recent_schedules++;
     p->last_scheduled = ticks;
-    if (p->boost > 0)
-    {
-      int ticks_waited = ticks - p->last_scheduled;
-      if (ticks_waited > 200)
-        p->boost = p->boost * 3 / 4;
-      else
-        p->boost = p->boost / 2;
-    }
     swtch(&(c->scheduler), p->context);
     switchkvm();
     c->proc = 0;
     release(&ptable_lock);
 
     sched_count++;
-    sti();
+    sti(); // Re-enable interrupts
   }
 }
-// Enter the scheduler (must hold ptable_lock)
+
+// Context switch to the scheduler
 void sched(void)
 {
   int intena;
   struct proc *p = myproc();
 
+  // Sanity checks
   if (!holding(&ptable_lock))
+  {
     panic("sched ptable_lock");
+  }
   if (mycpu()->ncli != 1)
+  {
     panic("sched locks");
+  }
   if (p->state == RUNNING)
+  {
     panic("sched running");
+  }
   if (readeflags() & FL_IF)
+  {
     panic("sched interruptible");
+  }
 
-  // If the process is RUNNABLE, add it back to its assigned CPU's run queue
+  // Add process back to runqueue if it's still runnable
   if (p->state == RUNNABLE)
   {
     if (p->cpu < 0 || p->cpu >= ncpu)
+    {
       panic("sched: invalid CPU assignment");
+    }
     rq_add(&cpus[p->cpu].rq, p);
   }
 
@@ -419,12 +490,14 @@ void sched(void)
   mycpu()->intena = intena;
 }
 
-// Yield the CPU for one scheduling round
+// Yield the CPU to another process
 void yield(void)
 {
   struct proc *p = myproc();
   if (p->cpu < 0 || p->cpu >= ncpu)
+  {
     panic("yield: invalid CPU assignment");
+  }
 
   acquire(&ptable_lock);
   p->state = RUNNABLE;
@@ -432,7 +505,7 @@ void yield(void)
   release(&ptable_lock);
 }
 
-// First scheduling of a fork child, returns to user space
+// Handle return from fork in the child process
 void forkret(void)
 {
   static int first = 1;
@@ -446,16 +519,21 @@ void forkret(void)
   }
 }
 
-// Sleep on a channel (atomically releases lock and reacquires on wakeup)
+// Put the current process to sleep on a channel
 void sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
 
   if (p == 0)
+  {
     panic("sleep");
+  }
   if (lk == 0)
+  {
     panic("sleep without lk");
+  }
 
+  // Acquire ptable_lock if not already held
   if (lk != &ptable_lock)
   {
     acquire(&ptable_lock);
@@ -463,16 +541,18 @@ void sleep(void *chan, struct spinlock *lk)
   }
   p->chan = chan;
   p->state = SLEEPING;
-  p->boost = p->tickets * 2;
-  p->recent_schedules = 0; // Reset on sleep
+  p->recent_schedules = 0;
   if (p->cpu < 0 || p->cpu >= ncpu)
+  {
     panic("sleep: invalid CPU assignment");
+  }
   rq_remove(&cpus[p->cpu].rq, p);
 
   sched();
 
   p->chan = 0;
 
+  // Release ptable_lock if necessary
   if (lk != &ptable_lock)
   {
     release(&ptable_lock);
@@ -480,6 +560,7 @@ void sleep(void *chan, struct spinlock *lk)
   }
 }
 
+// Wake up all processes sleeping on a channel (internal function)
 static void wakeup1(void *chan)
 {
   struct proc *p;
@@ -489,10 +570,11 @@ static void wakeup1(void *chan)
     if (p->state == SLEEPING && p->chan == chan)
     {
       p->state = RUNNABLE;
-      p->boost = p->tickets * 2;
-      p->recent_schedules = 0; // Reset on wakeup
+      p->recent_schedules = 0;
       if (p->cpu < 0 || p->cpu >= ncpu)
+      {
         panic("wakeup1: invalid CPU assignment");
+      }
       rq_add(&cpus[p->cpu].rq, p);
     }
   }
@@ -506,7 +588,7 @@ void wakeup(void *chan)
   release(&ptable_lock);
 }
 
-// Kill the process with the given PID
+// Kill a process with the given PID
 int kill(int pid)
 {
   struct proc *p;
@@ -521,8 +603,10 @@ int kill(int pid)
       {
         p->state = RUNNABLE;
         if (p->cpu < 0 || p->cpu >= ncpu)
+        {
           panic("kill: invalid CPU assignment");
-        rq_add(&cpus[p->cpu].rq, p); // Add to the assigned CPU's run queue
+        }
+        rq_add(&cpus[p->cpu].rq, p);
       }
       release(&ptable_lock);
       return 0;
@@ -532,7 +616,7 @@ int kill(int pid)
   return -1;
 }
 
-// Print process listing for debugging (triggered by ^P)
+// Dump process table information for debugging
 void procdump(void)
 {
   static char *states[] = {
@@ -550,18 +634,26 @@ void procdump(void)
   for (p = ptable; p < &ptable[NPROC]; p++)
   {
     if (p->state == UNUSED)
+    {
       continue;
+    }
     if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    {
       state = states[p->state];
+    }
     else
+    {
       state = "???";
+    }
     cprintf("%d %s %s tickets=%d scheduled=%d\n",
             p->pid, state, p->name, p->tickets, p->ticks_scheduled);
     if (p->state == SLEEPING)
     {
       getcallerpcs((uint *)p->context->ebp + 2, pc);
       for (i = 0; i < 10 && pc[i] != 0; i++)
+      {
         cprintf(" %p", pc[i]);
+      }
     }
     cprintf("\n");
   }
