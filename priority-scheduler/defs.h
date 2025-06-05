@@ -10,6 +10,9 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// Process table
+// extern struct spinlock ptable_lock;
+
 // bio.c
 void binit(void);
 struct buf *bread(uint, uint);
@@ -120,13 +123,12 @@ void userinit(void);
 int wait(void);
 void wakeup(void *);
 void yield(void);
-void print_sched_log(void);
+int sys_settickets_pid(void);
 
 // swtch.S
 void swtch(struct context **, struct context *);
 
 // spinlock.c
-extern struct spinlock uartlock;
 void acquire(struct spinlock *);
 void getcallerpcs(void *, uint *);
 int holding(struct spinlock *);

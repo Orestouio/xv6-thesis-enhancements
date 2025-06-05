@@ -1,11 +1,14 @@
 #include "types.h"
-#include "x86.h"
 #include "defs.h"
-#include "date.h"
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
+#include "x86.h"
 #include "proc.h"
+
+extern int context_switches;       // Defined in proc.c
+extern void print_sched_log(void); // Defined in proc.c
+extern struct proc ptable[NPROC];
 
 int sys_fork(void)
 {
@@ -15,7 +18,7 @@ int sys_fork(void)
 int sys_exit(void)
 {
   exit();
-  return 0; // not reached
+  return 0;
 }
 
 int sys_wait(void)
@@ -78,6 +81,12 @@ int sys_uptime(void)
   return xticks;
 }
 
+int sys_yield(void)
+{
+  yield();
+  return 0;
+}
+
 int sys_setpriority(void)
 {
   int pid, priority;
@@ -86,19 +95,21 @@ int sys_setpriority(void)
   if (priority < 0 || priority > 10)
     return -1;
   struct proc *p;
-  int i;
-  acquire(&ptable.lock);
-  for (i = 0; i < NPROC; i++)
+  acquire(&ptable_lock);
+  for (p = ptable; p < &ptable[NPROC]; p++)
   {
-    p = ptable.proc[i];
-    if (p && p->pid == pid)
+    if (p->pid == pid)
     {
+      if (p->state == RUNNABLE)
+        rq_remove(&cpus[p->cpu].rq, p);
       p->priority = priority;
-      release(&ptable.lock);
+      if (p->state == RUNNABLE)
+        rq_add(&cpus[p->cpu].rq, p);
+      release(&ptable_lock);
       return 0;
     }
   }
-  release(&ptable.lock);
+  release(&ptable_lock);
   return -1;
 }
 

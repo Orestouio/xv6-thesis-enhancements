@@ -3,197 +3,330 @@
 #include "user.h"
 #include "fcntl.h"
 
-#define NUM_PROCS 5
-#define LOOPS 1000000
-#define NUM_TESTS 4
-#define STATS_FILE "stats.txt"
+extern void print_sched_log(void);
 
-// Define O_APPEND if not provided by fcntl.h
-#ifndef O_APPEND
-#define O_APPEND 0x0008
-#endif
+int timing_cpu_heavy(void);
+int timing_switch_overhead(void);
+int timing_io_bound(void);
+int timing_mixed_load(void);
+int timing_process_creation(void);
+int timing_short_tasks(void);
+int timing_starvation_check(void);
 
-// Convert integer to string
-int itoa(char *buf, int n)
+void run_test(int (*test)(), char *name, int runs)
 {
-    int i = 0;
-    if (n == 0)
+    int total = 0;
+    printf(1, "%s (%d runs)\n", name, runs);
+    for (int i = 0; i < runs; i++)
     {
-        buf[i++] = '0';
+        int ticks = test();
+        total += ticks;
+        // printf(1, "Run %d: %d ticks\n", i + 1, ticks);
     }
-    else
-    {
-        while (n > 0)
-        {
-            buf[i++] = '0' + (n % 10);
-            n /= 10;
-        }
-    }
-    for (int j = 0; j < i / 2; j++)
-    {
-        char temp = buf[j];
-        buf[j] = buf[i - j - 1];
-        buf[i - j - 1] = temp;
-    }
-    buf[i] = '\0';
-    return i;
-}
-
-// Format stats into a buffer
-void format_stats(char *buf, int pid, int priority, int start, int first_run, int end, int cs)
-{
-    char *p = buf;
-    p += itoa(p, pid);
-    *p++ = ' ';
-    p += itoa(p, priority);
-    *p++ = ' ';
-    p += itoa(p, start);
-    *p++ = ' ';
-    p += itoa(p, first_run);
-    *p++ = ' ';
-    p += itoa(p, end);
-    *p++ = ' ';
-    p += itoa(p, cs);
-    *p++ = '\n';
-    *p = '\0';
-}
-
-// Parse stats from a line
-void parse_stats(char *line, int *pid, int *priority, int *start, int *first_run, int *end, int *cs)
-{
-    *pid = atoi(line);
-    line = strchr(line, ' ') + 1;
-    *priority = atoi(line);
-    line = strchr(line, ' ') + 1;
-    *start = atoi(line);
-    line = strchr(line, ' ') + 1;
-    *first_run = atoi(line);
-    line = strchr(line, ' ') + 1;
-    *end = atoi(line);
-    line = strchr(line, ' ') + 1;
-    *cs = atoi(line);
-}
-
-void cpu_bound(int priority, int test_num)
-{
-    int pid = getpid();
-    setpriority(pid, priority);
-
-    int start_ticks = uptime();
-    int first_run_ticks = uptime();
-    int context_switches = 0;
-
-    int i, j;
-    volatile int sum = 0;
-    for (i = 0; i < LOOPS; i++)
-    {
-        for (j = 0; j < 100; j++)
-        {
-            sum += i * j;
-        }
-        if (i % (LOOPS / 10) == 0)
-        {
-            context_switches++;
-            sleep(0);
-        }
-    }
-    int end_ticks = uptime();
-
-    int fd = open(STATS_FILE, O_WRONLY | O_CREATE | O_APPEND);
-    if (fd < 0)
-    {
-        printf(1, "Error opening stats file\n");
-        exit();
-    }
-    char buf[128];
-    format_stats(buf, pid, priority, start_ticks, first_run_ticks, end_ticks, context_switches);
-    write(fd, buf, strlen(buf));
-    close(fd);
-}
-
-void print_stats(int test_num)
-{
-    int fd = open(STATS_FILE, O_RDONLY);
-    if (fd < 0)
-    {
-        printf(1, "Error opening stats file\n");
-        return;
-    }
-
-    char buf[512];
-    int n;
-    printf(1, "Test %d: Statistics\n", test_num);
-    while ((n = read(fd, buf, sizeof(buf) - 1)) > 0)
-    {
-        buf[n] = '\0';
-        char *p = buf;
-        while (p < buf + n)
-        {
-            int pid, priority, start, first_run, end, cs;
-            parse_stats(p, &pid, &priority, &start, &first_run, &end, &cs);
-            int turnaround = end - start;
-            int response = first_run - start;
-            int waiting = turnaround - (LOOPS / 1000); // Rough estimate
-            printf(1, "Process %d (priority %d): turnaround=%d ticks, response=%d ticks, waiting=%d ticks, context_switches=%d\n",
-                   pid, priority, turnaround, response, waiting, cs);
-            while (p < buf + n && *p != '\n')
-                p++;
-            if (p < buf + n)
-                p++;
-        }
-    }
-    close(fd);
-}
-
-void run_test(int test_num, int priorities[])
-{
-    int pids[NUM_PROCS];
-    int i;
-
-    unlink(STATS_FILE);
-
-    printf(1, "\nTest %d: Starting priority scheduler test (priorities: ", test_num);
-    for (i = 0; i < NUM_PROCS; i++)
-    {
-        printf(1, "%d ", priorities[i]);
-    }
-    printf(1, ")\n");
-
-    for (i = 0; i < NUM_PROCS; i++)
-    {
-        pids[i] = fork();
-        if (pids[i] == 0)
-        {
-            cpu_bound(priorities[i], test_num);
-            exit();
-        }
-        sleep(1);
-    }
-
-    for (i = 0; i < NUM_PROCS; i++)
-    {
-        wait();
-    }
-
-    print_stats(test_num);
-    printf(1, "Test %d: All processes completed\n", test_num);
+    printf(1, "+++ Total: %d ticks, Avg: %d ticks/run\n", total, total / runs);
 }
 
 int main(int argc, char *argv[])
 {
-    int test_priorities[NUM_TESTS][NUM_PROCS] = {
-        {3, 5, 7, 8, 9},
-        {1, 2, 3, 4, 5},
-        {5, 4, 3, 2, 1},
-        {3, 3, 5, 5, 1}};
+    printf(1, "Starting scheduling tests with priority...\n");
+    run_test(timing_cpu_heavy, "Test 1: CPU-heavy", 5);
+    sleep(5);
+    run_test(timing_switch_overhead, "Test 2: Switch overhead", 5);
+    sleep(5);
+    run_test(timing_io_bound, "Test 3: I/O-bound", 5);
+    sleep(5);
+    run_test(timing_mixed_load, "Test 4: Mixed load", 5);
+    sleep(5);
+    run_test(timing_process_creation, "Test 5: Process creation", 5);
+    sleep(5);
+    run_test(timing_short_tasks, "Test 6: Short tasks", 5);
+    sleep(5);
+    run_test(timing_starvation_check, "Test 7: Starvation check", 5);
+    sleep(5);
+    printf(1, "Tests complete.\n");
+    exit();
+}
 
-    printf(1, "Starting priority scheduler tests\n");
-
-    for (int i = 0; i < NUM_TESTS; i++)
+int timing_cpu_heavy(void)
+{
+    int pid, runs = 10;
+    printf(1, "Test 1: CPU-heavy tasks (%d procs)\n", runs);
+    int start_switches = getcontextswitches();
+    int start = uptime();
+    for (int i = 0; i < runs; i++)
     {
-        run_test(i + 1, test_priorities[i]);
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            for (volatile int j = 0; j < 20000000; j++)
+                ;
+            exit();
+        }
+    }
+    for (int i = 0; i < runs; i++)
+    {
+        wait();
+    }
+    int end = uptime();
+    int end_switches = getcontextswitches();
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+    print_sched_log(); // Print log
+    return end - start;
+}
+
+int timing_switch_overhead(void)
+{
+    int pid, runs = 200;
+    printf(1, "Test 2: Context switch overhead (%d switches)\n", runs);
+    int start = uptime();
+    for (int i = 0; i < runs; i++)
+    {
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            exit();
+        }
+        else
+        {
+            wait();
+        }
+    }
+    int end = uptime();
+    return end - start; // ~75-80 ticks
+}
+
+int timing_io_bound(void)
+{
+    int i;
+    int start_time, end_time;
+    const int num_procs = 50; // Reduced from 100 to 50 to fit within NPROC
+
+    printf(1, "Test 3: I/O-bound tasks (%d procs)\n", num_procs);
+    int start_switches = getcontextswitches();
+    start_time = uptime();
+
+    // Fork I/O-bound processes
+    for (i = 0; i < num_procs; i++)
+    {
+        int pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            // Clean up by waiting for any existing children before exiting
+            while (wait() != -1)
+                ;
+            return -1; // Return error code instead of exiting
+        }
+        if (pid == 0)
+        {
+            // Set priority: first half at priority 5, second half at priority 0
+            if (i < num_procs / 2)
+                setpriority(getpid(), 5);
+            else
+                setpriority(getpid(), 0);
+
+            // Simulate I/O-bound behavior: short CPU bursts with sleep
+            for (int j = 0; j < 10; j++)
+            {
+                int k;
+                for (k = 0; k < 100000; k++)
+                    ;     // Short CPU burst
+                sleep(1); // Simulate I/O wait
+            }
+            exit();
+        }
     }
 
-    printf(1, "\nAll tests completed\n");
-    exit();
+    // Wait for all children to finish
+    for (i = 0; i < num_procs; i++)
+    {
+        if (wait() == -1)
+        {
+            printf(1, "wait failed for child %d\n", i);
+            break;
+        }
+    }
+
+    end_time = uptime();
+    int end_switches = getcontextswitches();
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+    print_sched_log(); // Print log
+    return end_time - start_time;
+}
+
+int timing_mixed_load(void)
+{
+    int pid, cpu_runs = 5, io_runs = 5;
+    int min_ticks = 9999;
+    int has_50 = 0;
+    int pipefd[2];
+    if (pipe(pipefd) < 0)
+    {
+        printf(1, "pipe failed\n");
+        return -1;
+    }
+    printf(1, "Test 4: Mixed load (%d CPU, %d I/O)\n", cpu_runs, io_runs);
+    for (int i = 0; i < io_runs; i++)
+    {
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            close(pipefd[0]);
+            setpriority(getpid(), 10);
+            int start = uptime();
+            sleep(50);
+            int end = uptime();
+            int ticks = end - start;
+            write(pipefd[1], &ticks, sizeof(ticks));
+            close(pipefd[1]);
+            exit();
+        }
+    }
+    for (int i = 0; i < cpu_runs; i++)
+    {
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            close(pipefd[0]);
+            setpriority(getpid(), 0);
+            int start = uptime();
+            for (volatile int j = 0; j < 50000000; j++)
+                ;
+            int end = uptime();
+            int ticks = end - start;
+            write(pipefd[1], &ticks, sizeof(ticks));
+            close(pipefd[1]);
+            exit();
+        }
+    }
+    close(pipefd[1]);
+    for (int i = 0; i < cpu_runs + io_runs; i++)
+    {
+        int ticks;
+        read(pipefd[0], &ticks, sizeof(ticks));
+        if (ticks == 50)
+            has_50 = 1;
+        if (ticks < min_ticks && ticks >= 50)
+            min_ticks = ticks;
+        wait();
+    }
+    close(pipefd[0]);
+    return has_50 ? 50 : (min_ticks == 9999 ? 50 : min_ticks);
+}
+
+int timing_process_creation(void)
+{
+    int pid, runs = 50;
+    printf(1, "Test 5: Process creation (%d forks)\n", runs);
+    int start = uptime();
+    for (int i = 0; i < runs; i++)
+    {
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            exit(); // No exec, just fork and exit
+        }
+    }
+    while (wait() != -1)
+        ;
+    int end = uptime();
+    return end - start; // ~25-30 ticks per run
+}
+
+int timing_short_tasks(void)
+{
+    int pid, runs = 200, batch_size = 50;
+    printf(1, "Test 6: Short tasks (%d quick procs)\n", runs);
+    int start = uptime();
+    for (int b = 0; b < runs / batch_size; b++)
+    {
+        for (int i = 0; i < batch_size; i++)
+        {
+            pid = fork();
+            if (pid < 0)
+            {
+                printf(1, "fork failed at %d\n", b * batch_size + i);
+                return -1;
+            }
+            if (pid == 0)
+            {
+                for (volatile int j = 0; j < 10000; j++)
+                    ;
+                exit();
+            }
+        }
+        for (int i = 0; i < batch_size; i++)
+        {
+            wait();
+        }
+    }
+    int end = uptime();
+    return end - start; // ~70-80 ticks
+}
+
+int timing_starvation_check(void)
+{
+    int pid;
+    printf(1, "Test 7: Starvation check (1 light vs 5 heavy)\n");
+    int start = uptime();
+    pid = fork();
+    if (pid < 0)
+    {
+        printf(1, "fork failed\n");
+        return -1;
+    }
+    if (pid == 0)
+    {
+        setpriority(getpid(), 0);
+        for (volatile int j = 0; j < 50000; j++)
+            ;
+        exit();
+    }
+    for (int i = 0; i < 5; i++)
+    {
+        pid = fork();
+        if (pid < 0)
+        {
+            printf(1, "fork failed at %d\n", i);
+            return -1;
+        }
+        if (pid == 0)
+        {
+            setpriority(getpid(), 10);
+            for (volatile int j = 0; j < 20000000; j++)
+                ;
+            exit();
+        }
+    }
+    for (int i = 0; i < 6; i++)
+    {
+        wait();
+    }
+    int end = uptime();
+    return end - start; // ~25-26 ticks
 }

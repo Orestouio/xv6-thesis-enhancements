@@ -1,10 +1,10 @@
-#ifndef _USER_H_
-#define _USER_H_
+#ifndef USER_H
+#define USER_H
 
 struct stat;
 struct rtcdate;
 
-// System calls
+// system calls
 int fork(void);
 int exit(void) __attribute__((noreturn));
 int wait(void);
@@ -26,8 +26,10 @@ int getpid(void);
 char *sbrk(int);
 int sleep(int);
 int uptime(void);
-int setpriority(int, int);
+int yield(void);
+int setpriority(int pid, int priority);
 int getcontextswitches(void);
+void print_sched_log(void);
 
 // ulib.c
 int stat(const char *, struct stat *);
