@@ -1,17 +1,16 @@
-# xv6 Thesis Enhancements
+# xv6 Scheduling Implementations
 
-This repository contains the implementations and thesis document for enhancing the xv6 operating system as part of Orestis Theodorou's dissertation project. The project includes four main components:
+This project contains three implementations of process schedulers for the xv6 operating system: round-robin, priority, and lottery scheduling. Each scheduler is implemented in a separate subdirectory.
 
-- **Priority Scheduler** (`priority-scheduler/`): A priority-based scheduler with levels 0–10, ensuring critical tasks are executed efficiently.
-- **Lottery Scheduler** (`lottery-scheduler/`): A probabilistic scheduler using ticket counts for proportional fairness.
-- **Shared Memory and Semaphores** (`shared-memory-semaphores/`): Mechanisms for IPC and synchronization, tested with a producer-consumer application.
-- **Round Robin Scheduler** (`round-robin/`): A modified round-robin scheduler, enhancing the default xv6 scheduling mechanism.
+## Directory Structure
+- `round-robin/`: Default xv6 round-robin scheduler.
+- `priority/`: Priority-based scheduler with deterministic process prioritization.
+- `lottery/`: Lottery scheduler with probabilistic CPU allocation based on tickets.
 
-The full thesis document is available at [thesis/thesis.pdf](thesis/thesis.pdf), detailing the design, implementation, testing, and results of each component.
+## Build Instructions
+Each subdirectory supports the following commands:
+- `make clean`: Remove compiled files.
+- `make`: Compile the xv6 kernel and user programs.
+- `make qemu CPUS=n`: Run xv6 in QEMU with `n` CPUs (e.g., `make qemu CPUS=2`).
 
-## Repository Structure
-- `priority-scheduler/`: Implementation of the priority scheduler. Originally developed in [Xv-6-Project](https://github.com/Orestouio/Xv-6-Project).
-- `lottery-scheduler/`: Implementation of the lottery scheduler. Originally developed in [Xv6_LotteryExtension](https://github.com/Orestouio/Xv6_LotteryExtension).
-- `shared-memory-semaphores/`: Implementation of shared memory and semaphores. Originally developed in [xv6-shared-memory](https://github.com/Orestouio/xv6-shared-memory).
-- `round-robin/`: Implementation of the modified round-robin scheduler. Originally developed in the `round-robin-modified` branch of [Xv-6-Project](https://github.com/Orestouio/Xv-6-Project/tree/round-robin-modified).
-- `thesis/`: Unified LaTeX document (`thesis.tex`) and compiled PDF (`thesis.pdf`).
+Navigate to the desired subdirectory and follow its README for specific details.

@@ -32,7 +32,7 @@ int sleep(int);
 int uptime(void);
 int getpinfo(int, struct proc_stat *);
 int getticks(void);
-int yield(void); // Added for timingtests.c
+int yield(void);
 int getcontextswitches(void);
 
 int stat(const char *, struct stat *);

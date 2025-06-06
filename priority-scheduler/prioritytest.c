@@ -1,8 +1,8 @@
 /*
- * prioritytest.c: User-level test program for the xv6 priority scheduler.
+ * Prioritytest.c: User-level test program for the xv6 priority scheduler.
  * Executes a suite of tests to evaluate scheduler performance under various workloads,
  * including CPU-heavy, I/O-bound, mixed, process creation, short tasks, and starvation scenarios.
- * Measures execution time and context switches, and prints scheduling logs.
+ * Measures execution time and context switches.
  */
 
 #include "types.h"
@@ -11,7 +11,7 @@
 #include "fcntl.h"
 
 // External declaration for printing scheduling log
-extern void print_sched_log(void);
+// extern void print_sched_log(void);
 
 // Function prototypes for test cases
 int timing_cpu_heavy(void);
@@ -111,7 +111,7 @@ int timing_cpu_heavy(void)
 
     // Print context switch count
     printf(1, "Context switches during test: %d\n", end_switches - start_switches);
-    print_sched_log(); // Print scheduling log
+    // print_sched_log(); // Print scheduling log
 
     // Return execution time in ticks
     return end - start;
@@ -215,7 +215,7 @@ int timing_io_bound(void)
 
     // Print context switch count
     printf(1, "Context switches during test: %d\n", end_switches - start_switches);
-    print_sched_log(); // Print scheduling log
+    // print_sched_log(); // Print scheduling log
 
     // Return execution time in ticks
     return end_time - start_time;
@@ -321,7 +321,7 @@ int timing_process_creation(void)
     // Record start time
     int start = uptime();
 
-    // Fork and immediately exit
+    // Fork and execution
     for (int i = 0; i < runs; i++)
     {
         pid = fork();
@@ -343,7 +343,7 @@ int timing_process_creation(void)
     // Record end time
     int end = uptime();
 
-    // Return execution time in ticks (~25-30 ticks per run)
+    // Return execution time in ticks (~25-30 ticks)
     return end - start;
 }
 
@@ -389,7 +389,7 @@ int timing_short_tasks(void)
     // Record end time
     int end = uptime();
 
-    // Return execution time in ticks (~70-80 ticks)
+    // Return execution time in ticks (~70-85 ticks)
     return end - start;
 }
 

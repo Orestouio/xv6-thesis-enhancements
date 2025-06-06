@@ -518,12 +518,6 @@ void scheduler(void)
       p->has_run = 1;
     }
 
-    // Log scheduling event
-    if (log_index < LOG_SIZE)
-    {
-      log_schedule(ticks, p->pid, p->priority, context_switches + 1);
-    }
-
     // Increment context switch counter
     context_switches++;
 

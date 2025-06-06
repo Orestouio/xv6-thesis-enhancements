@@ -701,7 +701,7 @@ int main(int argc, char *argv[])
 {
     printf(1, "Starting lottery scheduler tests\n");
 
-    const int num_runs = 3; // Number of runs for each test to average results
+    const int num_runs = 5; // Number of runs for each test to average results
     int total_a, total_b, total_c, total_d, total_e, total_f, total_g, total_h;
     int total_schedules;
 

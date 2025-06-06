@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "memlayout.h": "c",
+        "proc.h": "c",
+        "types.h": "c",
+        "x86.h": "c",
+        "runqueue.h": "c",
+        "spinlock.h": "c"
+    }
+}
