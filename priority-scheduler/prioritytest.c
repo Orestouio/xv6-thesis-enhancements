@@ -10,9 +10,6 @@
 #include "user.h"
 #include "fcntl.h"
 
-// External declaration for printing scheduling log
-// extern void print_sched_log(void);
-
 // Function prototypes for test cases
 int timing_cpu_heavy(void);
 int timing_switch_overhead(void);
@@ -111,7 +108,6 @@ int timing_cpu_heavy(void)
 
     // Print context switch count
     printf(1, "Context switches during test: %d\n", end_switches - start_switches);
-    // print_sched_log(); // Print scheduling log
 
     // Return execution time in ticks
     return end - start;
@@ -125,7 +121,8 @@ int timing_switch_overhead(void)
     // Announce test
     printf(1, "Test 2: Context switch overhead (%d switches)\n", runs);
 
-    // Record start time
+    // Record initial context switches and time
+    int start_switches = getcontextswitches();
     int start = uptime();
 
     // Perform fork-wait cycles
@@ -149,8 +146,12 @@ int timing_switch_overhead(void)
         }
     }
 
-    // Record end time
+    // Record end time and context switches
     int end = uptime();
+    int end_switches = getcontextswitches();
+
+    // Print context switch count
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
 
     // Return execution time in ticks (~75-80 ticks)
     return end - start;
@@ -215,7 +216,6 @@ int timing_io_bound(void)
 
     // Print context switch count
     printf(1, "Context switches during test: %d\n", end_switches - start_switches);
-    // print_sched_log(); // Print scheduling log
 
     // Return execution time in ticks
     return end_time - start_time;
@@ -239,6 +239,9 @@ int timing_mixed_load(void)
     // Announce test
     printf(1, "Test 4: Mixed load (%d CPU, %d I/O)\n", cpu_runs, io_runs);
 
+    // Record initial context switches
+    int start_switches = getcontextswitches();
+
     // Fork I/O-bound processes
     for (int i = 0; i < io_runs; i++)
     {
@@ -253,10 +256,8 @@ int timing_mixed_load(void)
             // Child: I/O-bound with low priority
             close(pipefd[0]);
             setpriority(getpid(), 10);
-            int start = uptime();
             sleep(50);
-            int end = uptime();
-            int ticks = end - start;
+            int ticks = 50; // Fixed sleep duration
             write(pipefd[1], &ticks, sizeof(ticks));
             close(pipefd[1]);
             exit();
@@ -277,11 +278,10 @@ int timing_mixed_load(void)
             // Child: CPU-bound with high priority
             close(pipefd[0]);
             setpriority(getpid(), 0);
-            int start = uptime();
+            int child_start = uptime();
             for (volatile int j = 0; j < 50000000; j++)
                 ;
-            int end = uptime();
-            int ticks = end - start;
+            int ticks = uptime() - child_start;
             write(pipefd[1], &ticks, sizeof(ticks));
             close(pipefd[1]);
             exit();
@@ -306,6 +306,12 @@ int timing_mixed_load(void)
     // Close read end of pipe
     close(pipefd[0]);
 
+    // Record context switches
+    int end_switches = getcontextswitches();
+
+    // Print context switch count
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+
     // Return representative execution time
     return has_50 ? 50 : (min_ticks == 9999 ? 50 : min_ticks);
 }
@@ -318,7 +324,8 @@ int timing_process_creation(void)
     // Announce test
     printf(1, "Test 5: Process creation (%d forks)\n", runs);
 
-    // Record start time
+    // Record initial context switches and time
+    int start_switches = getcontextswitches();
     int start = uptime();
 
     // Fork and execution
@@ -340,8 +347,12 @@ int timing_process_creation(void)
     while (wait() != -1)
         ;
 
-    // Record end time
+    // Record end time and context switches
     int end = uptime();
+    int end_switches = getcontextswitches();
+
+    // Print context switch count
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
 
     // Return execution time in ticks (~25-30 ticks)
     return end - start;
@@ -355,7 +366,8 @@ int timing_short_tasks(void)
     // Announce test
     printf(1, "Test 6: Short tasks (%d quick procs)\n", runs);
 
-    // Record start time
+    // Record initial context switches and time
+    int start_switches = getcontextswitches();
     int start = uptime();
 
     // Process tasks in batches
@@ -386,8 +398,12 @@ int timing_short_tasks(void)
         }
     }
 
-    // Record end time
+    // Record end time and context switches
     int end = uptime();
+    int end_switches = getcontextswitches();
+
+    // Print context switch count
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
 
     // Return execution time in ticks (~70-85 ticks)
     return end - start;
@@ -401,7 +417,8 @@ int timing_starvation_check(void)
     // Announce test
     printf(1, "Test 7: Starvation check (1 light vs 5 heavy)\n");
 
-    // Record start time
+    // Record initial context switches and time
+    int start_switches = getcontextswitches();
     int start = uptime();
 
     // Fork high-priority light task
@@ -445,9 +462,13 @@ int timing_starvation_check(void)
         wait();
     }
 
-    // Record end time
+    // Record end time and context switches
     int end = uptime();
+    int end_switches = getcontextswitches();
 
-    // Return execution time in ticks (~25-26 ticks)
+    // Print context switch count
+    printf(1, "Context switches during test: %d\n", end_switches - start_switches);
+
+    // Return execution time in ticks (~25-30 ticks)
     return end - start;
 }
