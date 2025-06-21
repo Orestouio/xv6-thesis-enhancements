@@ -4,8 +4,8 @@ This project contains three implementations of process schedulers for the xv6 op
 
 ## Directory Structure
 - `round-robin/`: Default xv6 round-robin scheduler.
-- `priority/`: Priority-based scheduler with deterministic process prioritization.
-- `lottery/`: Lottery scheduler with probabilistic CPU allocation based on tickets.
+- `priority-scheduler/`: Priority-based scheduler with deterministic process prioritization.
+- `lottery-scheduler/`: Lottery scheduler with probabilistic CPU allocation based on tickets.
 
 ## Build Instructions
 Each subdirectory supports the following commands:
